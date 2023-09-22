@@ -1,13 +1,37 @@
+use std::ops::Deref;
+
+use cgmath::Rotation3;
+use wgpu::Buffer;
+use wgpu::util::DeviceExt;
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Fullscreen, Window, WindowBuilder};
 
-use crate::texture::Texture;
+use render::texture::Texture;
+
+use crate::camera::CameraUniform;
+use crate::entity::Entity;
+use crate::event::EventDispatcher;
+use crate::render::{LightUniform, Renderer};
+use crate::render::instance::{Instance3D, InstanceManager};
+use crate::util::{IdManager, SharedCell};
 
 mod util;
-mod texture;
+mod entity;
+mod render;
+mod camera;
+mod event;
+mod resources;
 
-struct GlobalContext {
+pub struct BindGroups {
+    pub texture_layout: wgpu::BindGroupLayout,
+    pub camera_layout: wgpu::BindGroupLayout,
+    pub light_layout: wgpu::BindGroupLayout,
+    pub camera: wgpu::BindGroup,
+    pub light: wgpu::BindGroup,
+}
+
+pub struct GlobalContext {
     // rendering stuff:
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -15,11 +39,26 @@ struct GlobalContext {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
-    texture_bind_group_layout: wgpu::BindGroupLayout,
+    bind_groups: BindGroups,
+    renderer_3d: Renderer,
+    // camera stuff:
+    camera_buffer: Buffer,
+    // depth texture:
+    depth_texture: Texture,
+    // lighting:
+    light_uniform: LightUniform,
+    light_buffer: Buffer,
+    // creates ids and keeps a map of all things with ids
+    id_manager: IdManager,
+    // event dispatcher:
+    event_dispatcher: EventDispatcher,
+    // instance manager:
+    instance_manager: SharedCell<InstanceManager>,
+    // background colour:
+    background: [f64; 4],
 }
-
 impl GlobalContext {
-    async fn new(window: Window) -> Self {
+    pub async fn new(window: Window) -> Self {
         let size = window.inner_size();
         window.set_cursor_visible(false);
         // The instance is a handle to our GPU
@@ -99,35 +138,113 @@ impl GlobalContext {
             label: Some("texture_bind_group_layout"),
         });
 
-        // renderers:
-        let renderer_3d = {
-            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("3D Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &texture_bind_group_layout,
-                    // &camera_bind_group_layout,
-                    // &light_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            let shader = wgpu::ShaderModuleDescriptor {
-                label: Some("Normal Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../res/shaders/shader.wgsl").into()),
-            };
-            Renderer::new(
-                "3D Render Pipeline",
-                &device,
-                &layout,
-                config.format,
-                Some(Texture::DEPTH_FORMAT),
-                &[/*ModelVertex::desc(), Instance3DRaw::desc()*/], //todo
-                shader,
-            )
+        // camera:
+        // let camera = Camera::default().with_aspect(config.width as f32 / config.height as f32);
+        let camera_uniform = CameraUniform::new();
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ],
+            label: Some("camera_bind_group_layout"),
+        });
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                }
+            ],
+            label: Some("camera_bind_group"),
+        });
+
+        // depth texture:
+        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
+
+        // light uniform:
+        let light_uniform = LightUniform {
+            position: [2.0, 2.0, 2.0],
+            _padding: 0,
+            color: [1.0, 1.0, 1.0],
+            _padding2: 0,
         };
+        let light_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Light VB"),
+                contents: bytemuck::cast_slice(&[light_uniform]),
+                // We'll want to update our lights position, so we use COPY_DST
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            }
+        );
+        let light_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: None,
+            });
+        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &light_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: light_buffer.as_entire_binding(),
+            }],
+            label: None,
+        });
+
+        let bind_groups = BindGroups {
+            camera_layout: camera_bind_group_layout,
+            texture_layout: texture_bind_group_layout,
+            light_layout: light_bind_group_layout,
+            camera: camera_bind_group,
+            light: light_bind_group
+        };
+
+        // managers:
+        let id_manager = IdManager::new();
+        let event_dispatcher = EventDispatcher::new(id_manager.clone());
+        let instance_manager = SharedCell::new(InstanceManager::new(&device, id_manager.clone()));
+
+        // renderers:
+        let renderer_3d = render::preset_renderers::preset_renderer_3d(
+            &device,
+            &config,
+            &bind_groups,
+        );
 
         Self {
             surface, device, queue, config, size, window,
-            texture_bind_group_layout,
+            bind_groups,
+            renderer_3d,
+            camera_buffer,
+            depth_texture,
+            light_uniform,
+            light_buffer,
+            id_manager,
+            event_dispatcher,
+            instance_manager,
+            background: [0.1, 0.1, 0.1, 1.0],
         }
     }
 
@@ -135,106 +252,118 @@ impl GlobalContext {
         &self.window
     }
 
-    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
         }
-        // self.depth_texture = Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+        self.depth_texture = Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
     }
 
-    fn do_tick(&mut self) {
+    pub fn do_tick(&mut self) {
         // dispatching events
-        // self.event_dispatcher.process_events();
+        self.event_dispatcher.process_events();
 
         // Update the light
-        // let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
-        // self.light_uniform.position =
-        //     (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0))
-        //         * old_position)
-        //         .into();
-        // self.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light_uniform]));
+        let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
+        self.light_uniform.position =
+            (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0))
+                * old_position)
+                .into();
+        self.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light_uniform]));
+
+        // instance updates:
+        self.instance_manager.borrow_mut().tick(&self);
 
         // move the cursor to the center of the screen:
         // self.set_cursor_to_center();
     }
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let instance_manager = self.instance_manager.borrow();
+        let output = self.surface.get_current_texture()?;
+        let texture_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
+        // rendering through the view graph:
+        let mut commands = Vec::new();
+        // todo get the render commands
+
+        {
+            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[
+                    // This is what @location(0) in the fragment shader targets
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(
+                                wgpu::Color {
+                                    r: self.background[0],
+                                    g: self.background[1],
+                                    b: self.background[2],
+                                    a: self.background[3],
+                                }
+                            ),
+                            store: true,
+                        }
+                    })
+                ],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+            self.renderer_3d.render(render_pass, commands, instance_manager.deref(), &self.bind_groups);
+        }
+        // submit will accept anything that implements IntoIter
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
         Ok(())
     }
-}
 
+    // -----------------------
+    //    Utility functions
+    // -----------------------
+    pub fn register_entity(&self, entity: SharedCell<Entity>) {
+        self.id_manager.register_entity(entity)
+    }
 
-struct Renderer {
-    label: String,
-    render_pipeline: wgpu::RenderPipeline,
-}
+    pub fn register_instance_3d(&self, instance_3d: SharedCell<Instance3D>) -> usize {
+        let mut instance_manager = self.instance_manager.borrow_mut();
+        instance_manager.register_instance(instance_3d)
+    }
 
-impl Renderer {
-    pub fn new(
-        label: &str,
-        device: &wgpu::Device,
-        layout: &wgpu::PipelineLayout,
-        color_format: wgpu::TextureFormat,
-        depth_format: Option<wgpu::TextureFormat>,
-        vertex_layouts: &[wgpu::VertexBufferLayout],
-        shader: wgpu::ShaderModuleDescriptor,
-    ) -> Self {
-        let shader = device.create_shader_module(shader);
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(label),
-            layout: Some(layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: vertex_layouts,
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: Some(wgpu::BlendState {
-                        alpha: wgpu::BlendComponent::REPLACE,
-                        color: wgpu::BlendComponent::REPLACE,
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-                polygon_mode: wgpu::PolygonMode::Fill,
-                // Requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-            depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
-                format,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        });
-
-        Renderer {
-            label: label.to_string(),
-            render_pipeline,
+    pub async fn async_load_model(&self, file_name: &str) {
+        let mut instance_manager = self.instance_manager.borrow_mut();
+        if instance_manager.models.contains_key(file_name) {
+            return;
         }
+
+        print!("[RES] Loading model {file_name}: ");
+        match instance_manager.load_model(
+            file_name,
+            &self.device,
+            &self.queue,
+            &self.bind_groups.texture_layout
+        ).await {
+            Ok(_) => {println!(" OK")}
+            Err(e) => {println!(" ERROR: {e}")}
+        }
+    }
+
+    pub fn load_model(&self, file_name: &str) {
+        pollster::block_on(async {
+            self.async_load_model(file_name).await
+        });
     }
 }
 
@@ -281,13 +410,13 @@ pub async fn run() {
     }
 
     // initialising the global state
-    let mut state = GlobalContext::new(window);
+    let mut context = GlobalContext::new(window).await;
 
     // event loop
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent { ref event, window_id, }
-            if window_id == state.window().id() => {
+            if window_id == context.window().id() => {
                 // view_root_input(&mut view_root, event);
                 match event {
                     WindowEvent::CloseRequested | WindowEvent::KeyboardInput {
@@ -299,10 +428,10 @@ pub async fn run() {
                         ..
                     } => *control_flow = ControlFlow::Exit,
                     WindowEvent::Resized(physical_size) => {
-                        state.resize(*physical_size);
+                        context.resize(*physical_size);
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        state.resize(**new_inner_size);
+                        context.resize(**new_inner_size);
                     }
                     WindowEvent::KeyboardInput {
                         input: KeyboardInput {
@@ -312,19 +441,19 @@ pub async fn run() {
                         },
                         ..
                     } => {
-                        state.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                        context.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
                     }
                     _ => {}
                 }
             }
-            Event::RedrawRequested(window_id) if window_id == state.window().id() => {
+            Event::RedrawRequested(window_id) if window_id == context.window().id() => {
                 // view update
                 // view_root.borrow_mut().update(&state);
-                state.do_tick();
-                match state.render() {
+                context.do_tick();
+                match context.render() {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
-                    Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                    Err(wgpu::SurfaceError::Lost) => context.resize(context.size),
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                     // All other errors (Outdated, Timeout) should be resolved by the next frame
@@ -334,7 +463,7 @@ pub async fn run() {
             Event::MainEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
-                state.window().request_redraw();
+                context.window().request_redraw();
             }
             _ => {}
         }

@@ -1,6 +1,12 @@
 use std::cell::{Ref, RefCell, RefMut};
-use std::ops::Deref;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
+
+use crate::entity::{Component, Entity};
+use crate::event::GameEvent;
 
 // ---------------
 //   Shared Cell
@@ -42,5 +48,106 @@ impl<T> Clone for SharedCell<T> {
 impl<T: PartialEq> PartialEq for SharedCell<T> {
     fn eq(&self, other: &Self) -> bool {
         self.borrow().deref().eq(other.borrow().deref())
+    }
+}
+
+// --------------
+//   Id Manager
+// --------------
+pub enum ObjectWrap {
+    Entity(SharedCell<Entity>),
+    Component(SharedCell<Component>),
+}
+
+impl ObjectWrap {
+    pub fn get_id(&self) -> u64 {
+        match self {
+            ObjectWrap::Entity(entity) => {
+                entity.borrow().get_id()
+            }
+            ObjectWrap::Component(component) => {
+                component.borrow().get_id()
+            }
+        }
+    }
+
+    pub fn input(&self, event: GameEvent) {
+        match self {
+            ObjectWrap::Entity(entity) => {
+                entity.borrow_mut().input(event)
+            }
+            ObjectWrap::Component(component) => {
+                component.borrow_mut().input(event)
+            }
+        }
+    }
+}
+
+impl Clone for ObjectWrap {
+    fn clone(&self) -> Self {
+        match self {
+            ObjectWrap::Entity(cell) => ObjectWrap::Entity(cell.clone()),
+            ObjectWrap::Component(cell) => ObjectWrap::Component(cell.clone()),
+        }
+    }
+}
+
+pub struct IdManager<> {
+    map: SharedCell<HashMap<u64, ObjectWrap>>,
+    hasher: SharedCell<DefaultHasher>,
+}
+
+impl IdManager {
+    pub fn new() -> Self {
+        Self {
+            map: SharedCell::new(HashMap::new()),
+            hasher: SharedCell::new(DefaultHasher::new()),
+        }
+    }
+
+    pub fn get(&self, id: u64) -> Option<ObjectWrap> {
+        // self.map.borrow().get(&id)
+        let map = self.map.borrow();
+        if let Some(t) = map.get(&id) {
+            return Some(t.clone())
+        }
+        None
+    }
+
+    pub fn get_mut(&self, id: u64) -> Option<ObjectWrap> {
+        // self.map.borrow_mut().get_mut(&id)
+        let mut map = self.map.borrow_mut();
+        if let Some(t) = map.get_mut(&id) {
+            return Some(t.clone())
+        }
+        None
+    }
+
+    pub fn next_id(&self) -> u64 {
+        let mut hasher = self.hasher.borrow_mut();
+        let hash = hasher.finish();
+        hash.hash(hasher.deref_mut());
+        hash
+    }
+
+    pub fn register_entity(&self, entity: SharedCell<Entity>) {
+        let mut map = self.map.borrow_mut();
+        let id = entity.borrow().get_id();
+        map.insert(id, ObjectWrap::Entity(entity));
+    }
+
+    pub fn register_component(&self, component: SharedCell<Component>) {
+        let mut map = self.map.borrow_mut();
+        let id = component.borrow().get_id();
+        map.insert(id, ObjectWrap::Component(component));
+    }
+}
+
+impl Clone for IdManager {
+    fn clone(&self) -> Self {
+        Self {
+            map: self.map.clone(),
+            hasher: self.hasher.clone(),
+        }
     }
 }
