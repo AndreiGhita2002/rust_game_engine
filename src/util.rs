@@ -81,6 +81,20 @@ impl ObjectWrap {
             }
         }
     }
+
+    pub fn to_entity(self) -> Option<SharedCell<Entity>> {
+        match self {
+            ObjectWrap::Entity(cell) => Some(cell),
+            _ => None
+        }
+    }
+
+    pub fn to_component(self) -> Option<SharedCell<Component>> {
+        match self {
+            ObjectWrap::Component(cell) => Some(cell),
+            _ => None
+        }
+    }
 }
 
 impl Clone for ObjectWrap {
