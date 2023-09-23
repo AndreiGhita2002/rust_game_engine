@@ -246,7 +246,7 @@ impl RenderCommand {
 pub trait RenderComponent {
     fn init(&mut self, context: &GlobalContext);
 
-    fn render(&self, entity: &Entity) -> RenderCommand;
+    fn render(&self, entity: &Entity, commands: &mut Vec<RenderCommand>);
 
     fn transform_child(&self, child_command: RenderCommand) -> RenderCommand;
 
@@ -256,15 +256,13 @@ pub trait RenderComponent {
 pub struct Single3DInstance {
     pub instance: SharedCell<Instance3D>,  //todo: this kinda needs to be in entity
     pub instance_id: u32,
-    pub model: String,
 }
 impl Single3DInstance {
-    pub fn new(instance: Instance3D, model: &str) -> Self {
-        Self {
+    pub fn new(instance: Instance3D) -> Box<Self> {
+        Box::new(Self {
             instance: SharedCell::new(instance),
             instance_id: 0,
-            model: model.to_string(),
-        }
+        })
     }
 }
 impl RenderComponent for Single3DInstance {
@@ -273,12 +271,12 @@ impl RenderComponent for Single3DInstance {
         self.instance_id = id as u32;
     }
 
-    fn render(&self, _entity: &Entity) -> RenderCommand {
-        RenderCommand {
-            model: self.model.clone(),
+    fn render(&self, _entity: &Entity, commands: &mut Vec<RenderCommand>) {
+        commands.push(RenderCommand {
+            model: self.instance.borrow().model_name.clone(),
             transform: None,
             instances: Some(self.instance_id..(self.instance_id+1)),
-        }
+        })
     }
 
     fn transform_child(&self, child_command: RenderCommand) -> RenderCommand {
@@ -290,3 +288,18 @@ impl RenderComponent for Single3DInstance {
     }
 }
 
+pub struct NoRender {}
+impl NoRender {
+    pub fn new() -> Box<Self> {
+        Box::new(Self {})
+    }
+}
+impl RenderComponent for NoRender {
+    fn init(&mut self, _context: &GlobalContext) {}
+
+    fn render(&self, _entity: &Entity, _commands: &mut Vec<RenderCommand>) {}
+
+    fn transform_child(&self, child_command: RenderCommand) -> RenderCommand { child_command }
+
+    fn get_name(&self) -> String { "No Render".to_string() }
+}

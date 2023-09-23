@@ -10,8 +10,8 @@ use winit::window::{Fullscreen, Window, WindowBuilder};
 use render::texture::Texture;
 
 use crate::camera::CameraUniform;
-use crate::entity::Entity;
-use crate::event::EventDispatcher;
+use crate::entity::{Entity, EntityManager};
+use crate::event::{EventDispatcher, GameEvent};
 use crate::render::{LightUniform, Renderer};
 use crate::render::instance::{Instance3D, InstanceManager};
 use crate::util::{IdManager, SharedCell};
@@ -48,12 +48,11 @@ pub struct GlobalContext {
     // lighting:
     light_uniform: LightUniform,
     light_buffer: Buffer,
-    // creates ids and keeps a map of all things with ids
+    // game managers:
     id_manager: IdManager,
-    // event dispatcher:
     event_dispatcher: EventDispatcher,
-    // instance manager:
     instance_manager: SharedCell<InstanceManager>,
+    entity_manager: SharedCell<EntityManager>,
     // background colour:
     background: [f64; 4],
 }
@@ -225,6 +224,7 @@ impl GlobalContext {
         let id_manager = IdManager::new();
         let event_dispatcher = EventDispatcher::new(id_manager.clone());
         let instance_manager = SharedCell::new(InstanceManager::new(&device, id_manager.clone()));
+        let entity_manager = SharedCell::new(EntityManager::new(id_manager.clone()));
 
         // renderers:
         let renderer_3d = render::preset_renderers::preset_renderer_3d(
@@ -244,6 +244,7 @@ impl GlobalContext {
             id_manager,
             event_dispatcher,
             instance_manager,
+            entity_manager,
             background: [0.1, 0.1, 0.1, 1.0],
         }
     }
@@ -262,9 +263,17 @@ impl GlobalContext {
         self.depth_texture = Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
     }
 
+    pub fn input(&mut self, event: GameEvent) {
+        let _ = event;
+        //todo
+    }
+
     pub fn do_tick(&mut self) {
         // dispatching events
         self.event_dispatcher.process_events();
+
+        // doing tick on the entity graph
+        self.entity_manager.borrow_mut().tick();
 
         // Update the light
         let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
@@ -289,8 +298,9 @@ impl GlobalContext {
             label: Some("Render Encoder"),
         });
         // rendering through the view graph:
-        let mut commands = Vec::new();
-        // todo get the render commands
+        println!("Number of Entities: {}", self.entity_manager.borrow().len());
+        let commands = self.entity_manager.borrow().render();
+        println!("Render Commands: {}", commands.len());
 
         {
             let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -334,7 +344,8 @@ impl GlobalContext {
     //    Utility functions
     // -----------------------
     pub fn register_entity(&self, entity: SharedCell<Entity>) {
-        self.id_manager.register_entity(entity)
+        let mut entity_manager = self.entity_manager.borrow_mut();
+        entity_manager.register_entity(entity)
     }
 
     pub fn register_instance_3d(&self, instance_3d: SharedCell<Instance3D>) -> usize {
@@ -367,6 +378,13 @@ impl GlobalContext {
     }
 }
 
+fn test_init(context: &mut GlobalContext) {
+    context.load_model("cube");
+    context.load_model("cat_cube");
+
+    let mut entity_manager = context.entity_manager.borrow_mut();
+    entity_manager.init(&context);
+}
 
 #[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
 pub async fn run() {
@@ -411,6 +429,9 @@ pub async fn run() {
 
     // initialising the global state
     let mut context = GlobalContext::new(window).await;
+    test_init(&mut context);
+    context.do_tick();
+    let mut redraw = false;
 
     // event loop
     event_loop.run(move |event, _, control_flow| {
@@ -436,6 +457,16 @@ pub async fn run() {
                     WindowEvent::KeyboardInput {
                         input: KeyboardInput {
                             state: ElementState::Pressed,
+                            virtual_keycode: Some(VirtualKeyCode::Space),
+                            ..
+                        },
+                        ..
+                    } => {
+                        redraw = true;
+                    }
+                    WindowEvent::KeyboardInput {
+                        input: KeyboardInput {
+                            state: ElementState::Pressed,
                             virtual_keycode: Some(VirtualKeyCode::F4),
                             ..
                         },
@@ -443,12 +474,12 @@ pub async fn run() {
                     } => {
                         context.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
                     }
-                    _ => {}
+                    _ => if let Some(event) = GameEvent::from_winit_event(event) {
+                        context.input(event)
+                    }
                 }
             }
             Event::RedrawRequested(window_id) if window_id == context.window().id() => {
-                // view update
-                // view_root.borrow_mut().update(&state);
                 context.do_tick();
                 match context.render() {
                     Ok(_) => {}
@@ -463,7 +494,11 @@ pub async fn run() {
             Event::MainEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
-                context.window().request_redraw();
+                if redraw {
+                    println!("REDRAW!!");
+                    context.window().request_redraw();
+                    redraw = false;
+                }
             }
             _ => {}
         }

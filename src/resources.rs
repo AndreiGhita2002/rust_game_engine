@@ -21,6 +21,8 @@ fn format_url(file_name: &str) -> reqwest::Url {
     out
 }
 
+const MODEL_DIR: &'static str = "models/";
+
 pub async fn load_string(file_name: &str) -> anyhow::Result<String> {
     cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
@@ -64,9 +66,11 @@ pub async fn load_texture(file_name: &str, device: &Device, queue: &Queue)
     texture::Texture::from_bytes(device, queue, &data, file_name)
 }
 
-pub async fn load_model(file_name: &str, device: &Device, queue: &Queue, layout: &BindGroupLayout)
+pub async fn load_model(model_name: &str, device: &Device, queue: &Queue, layout: &BindGroupLayout)
     -> anyhow::Result<model::Model> {
-    let obj_text = load_string(file_name).await?;
+
+    let obj_url = format!("{MODEL_DIR}{model_name}.obj");
+    let obj_text = load_string(&obj_url).await?;
     let obj_cursor = Cursor::new(obj_text);
     let mut obj_reader = BufReader::new(obj_cursor);
 
@@ -78,7 +82,8 @@ pub async fn load_model(file_name: &str, device: &Device, queue: &Queue, layout:
             ..Default::default()
         },
         |p| async move {
-            let mat_text = load_string(&p).await.unwrap();
+            let material_url = format!("{MODEL_DIR}{p}");
+            let mat_text = load_string(&material_url).await.unwrap();
             tobj::load_mtl_buf(&mut BufReader::new(Cursor::new(mat_text)))
         },
     )
@@ -86,7 +91,8 @@ pub async fn load_model(file_name: &str, device: &Device, queue: &Queue, layout:
 
     let mut materials = Vec::new();
     for m in obj_materials? {
-        let diffuse_texture = load_texture(&m.diffuse_texture.unwrap(), device, queue).await?;
+        let texture_url = format!("{MODEL_DIR}{}", m.diffuse_texture.unwrap());
+        let diffuse_texture = load_texture(&texture_url, device, queue).await?;
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
             entries: &[
@@ -131,18 +137,18 @@ pub async fn load_model(file_name: &str, device: &Device, queue: &Queue, layout:
                 .collect::<Vec<_>>();
 
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{:?} Vertex Buffer", file_name)),
+                label: Some(&format!("{:?} Vertex Buffer", model_name)),
                 contents: bytemuck::cast_slice(&vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             });
             let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{:?} Index Buffer", file_name)),
+                label: Some(&format!("{:?} Index Buffer", model_name)),
                 contents: bytemuck::cast_slice(&m.mesh.indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
 
             Mesh {
-                name: file_name.to_string(),
+                name: model_name.to_string(),
                 vertex_buffer,
                 index_buffer,
                 num_elements: m.mesh.indices.len() as u32,

@@ -52,6 +52,7 @@ impl InstanceManager {
     }
 
     pub fn register_instance(&mut self, instance: SharedCell<Instance3D>) -> usize {
+        println!("Registering Instance: {:?}", instance.borrow());
         self.instances_3d.push(instance);
         self.needs_buffer_remake = true;
         self.instances_3d.len() - 1
@@ -66,10 +67,12 @@ impl InstanceManager {
     }
 
     pub fn remake_buffer(&mut self, context: &GlobalContext) {
+        println!("Instance Buffer is being remade!");
         let instance_data = self.instances_3d
             .iter()
             .map(|inst| inst.borrow().to_raw())
             .collect::<Vec<_>>();
+        println!("  - number of instances: {}", instance_data.len());
         let instance_buffer = context.device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Instance Buffer"),
