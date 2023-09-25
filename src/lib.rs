@@ -1,6 +1,6 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
-use cgmath::Rotation3;
+use cgmath::{Quaternion, Rotation3, Vector3};
 use wgpu::Buffer;
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
@@ -9,11 +9,12 @@ use winit::window::{Fullscreen, Window, WindowBuilder};
 
 use render::texture::Texture;
 
-use crate::camera::CameraUniform;
+use crate::camera::{Camera, CameraUniform, FreeCamController};
 use crate::entity::{Entity, EntityManager};
 use crate::event::{EventDispatcher, GameEvent};
-use crate::render::{LightUniform, Renderer};
+use crate::render::{LightUniform, NoRender, Renderer};
 use crate::render::instance::{Instance3D, InstanceManager};
+use crate::system::{PlayerControllerSystem, SystemManager};
 use crate::util::{IdManager, SharedCell};
 
 mod util;
@@ -22,6 +23,7 @@ mod render;
 mod camera;
 mod event;
 mod resources;
+mod system;
 
 pub struct BindGroups {
     pub texture_layout: wgpu::BindGroupLayout,
@@ -31,6 +33,7 @@ pub struct BindGroups {
     pub light: wgpu::BindGroup,
 }
 
+#[allow(dead_code)]
 pub struct GlobalContext {
     // rendering stuff:
     surface: wgpu::Surface,
@@ -53,6 +56,7 @@ pub struct GlobalContext {
     event_dispatcher: EventDispatcher,
     instance_manager: SharedCell<InstanceManager>,
     entity_manager: SharedCell<EntityManager>,
+    system_manager: SharedCell<SystemManager>,
     // background colour:
     background: [f64; 4],
 }
@@ -225,6 +229,7 @@ impl GlobalContext {
         let event_dispatcher = EventDispatcher::new(id_manager.clone());
         let instance_manager = SharedCell::new(InstanceManager::new(&device, id_manager.clone()));
         let entity_manager = SharedCell::new(EntityManager::new(id_manager.clone()));
+        let system_manager = SharedCell::new(SystemManager::new());
 
         // renderers:
         let renderer_3d = render::preset_renderers::preset_renderer_3d(
@@ -245,6 +250,7 @@ impl GlobalContext {
             event_dispatcher,
             instance_manager,
             entity_manager,
+            system_manager,
             background: [0.1, 0.1, 0.1, 1.0],
         }
     }
@@ -264,13 +270,21 @@ impl GlobalContext {
     }
 
     pub fn input(&mut self, event: GameEvent) {
-        let _ = event;
-        //todo
+        // it's first sent to the systems:
+        let _response = self.system_manager.borrow_mut().input(event.clone());
+        // if the systems have only weakly used up the event,
+        // if response.at_most_weak() {
+        //     // then to the event dispatcher to the destination "game_input":
+        //     self.event_dispatcher.send_event("game_input", event);
+        // }
     }
 
     pub fn do_tick(&mut self) {
         // dispatching events
         self.event_dispatcher.process_events();
+
+        // systems tick
+        self.system_manager.borrow_mut().tick(self);
 
         // doing tick on the entity graph
         self.entity_manager.borrow_mut().tick();
@@ -278,7 +292,7 @@ impl GlobalContext {
         // Update the light
         let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
         self.light_uniform.position =
-            (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0))
+            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0))
                 * old_position)
                 .into();
         self.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light_uniform]));
@@ -298,10 +312,7 @@ impl GlobalContext {
             label: Some("Render Encoder"),
         });
         // rendering through the view graph:
-        println!("Number of Entities: {}", self.entity_manager.borrow().len());
         let commands = self.entity_manager.borrow().render();
-        println!("Render Commands: {}", commands.len());
-
         {
             let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -343,14 +354,14 @@ impl GlobalContext {
     // -----------------------
     //    Utility functions
     // -----------------------
-    pub fn register_entity(&self, entity: SharedCell<Entity>) {
-        let mut entity_manager = self.entity_manager.borrow_mut();
-        entity_manager.register_entity(entity)
-    }
-
     pub fn register_instance_3d(&self, instance_3d: SharedCell<Instance3D>) -> usize {
         let mut instance_manager = self.instance_manager.borrow_mut();
         instance_manager.register_instance(instance_3d)
+    }
+
+    pub fn update_camera_uniform(&self, camera: &Camera) {
+        let uniform = camera.create_uniform();
+        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[uniform]));
     }
 
     pub async fn async_load_model(&self, file_name: &str) {
@@ -379,11 +390,32 @@ impl GlobalContext {
 }
 
 fn test_init(context: &mut GlobalContext) {
+    // loading models
     context.load_model("cube");
     context.load_model("cat_cube");
 
+    // setup the entity manager
     let mut entity_manager = context.entity_manager.borrow_mut();
     entity_manager.init(&context);
+
+    let player_instance = SharedCell::new(Instance3D {
+        position: Vector3::new(0.0, 0.0, 0.0),
+        rotation: Quaternion::new(1.0, 0.0, 0.0, 0.0),
+        model_name: "".to_string(),
+    });
+
+    let player = Entity::new_at_root(
+        entity_manager.deref_mut(),
+        context,
+        Some(player_instance),
+        NoRender::new()
+    );
+    let player_controller = PlayerControllerSystem::new(
+        Camera::default(),
+        Box::new(FreeCamController::default()),
+        player
+    );
+    context.system_manager.borrow_mut().add_system(player_controller);
 }
 
 #[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
@@ -431,7 +463,6 @@ pub async fn run() {
     let mut context = GlobalContext::new(window).await;
     test_init(&mut context);
     context.do_tick();
-    let mut redraw = false;
 
     // event loop
     event_loop.run(move |event, _, control_flow| {
@@ -453,16 +484,6 @@ pub async fn run() {
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         context.resize(**new_inner_size);
-                    }
-                    WindowEvent::KeyboardInput {
-                        input: KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Space),
-                            ..
-                        },
-                        ..
-                    } => {
-                        redraw = true;
                     }
                     WindowEvent::KeyboardInput {
                         input: KeyboardInput {
@@ -494,11 +515,7 @@ pub async fn run() {
             Event::MainEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
-                if redraw {
-                    println!("REDRAW!!");
-                    context.window().request_redraw();
-                    redraw = false;
-                }
+                context.window().request_redraw();
             }
             _ => {}
         }

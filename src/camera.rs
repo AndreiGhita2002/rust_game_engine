@@ -75,12 +75,11 @@ impl Camera {
 impl Default for Camera {
     fn default() -> Self {
         Camera {
-            eye: (0.0, 1.0, 0.0).into(),
-            target: (0.0, 0.0, 0.0).into(),
-            // which way is "up"
+            eye: (0.0, 0.0, 0.0).into(),
+            target: (1.0, 2.0, 0.0).into(),
             up: Vector3::unit_y(),
             aspect: 1.0,
-            fovy: 45.0,
+            fovy: 55.0,
             znear: 0.1,
             zfar: 100.0,
         }

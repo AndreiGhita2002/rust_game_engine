@@ -1,25 +1,29 @@
+use cgmath::Vector3;
+
 use crate::camera::{Camera, CameraController};
 use crate::entity::Entity;
-use crate::event::{GameEvent, ValueType};
+use crate::event::{GameEvent, Response};
 use crate::GlobalContext;
 use crate::util::SharedCell;
 
-struct SystemManager {
-    systems: Vec<System>,
+pub struct SystemManager {
+    systems: Vec<GameSystem>,
 }
 impl SystemManager {
     pub fn new() -> Self {
         Self { systems: vec![] }
     }
 
-    pub fn add_system(&mut self, system: System) {
-        self.systems.push(system);
+    pub fn add_system<T: Into<GameSystem>>(&mut self, system: T) {
+        self.systems.push(system.into());
     }
 
-    pub fn input(&mut self, event: GameEvent) {
+    pub fn input(&mut self, event: GameEvent) -> Response {
+        let mut output = Response::No;
         for system in self.systems.iter_mut() {
-            system.input(event.clone());
+            output = output.with(system.input(event.clone()));
         }
+        output
     }
 
     pub fn tick(&mut self, context: &GlobalContext) {
@@ -29,12 +33,12 @@ impl SystemManager {
     }
 }
 
-struct System {
+pub struct GameSystem {
     object: Box<dyn SystemObject>,
 }
-impl System {
-    fn input(&mut self, event: GameEvent) {
-        self.object.input(event);
+impl GameSystem {
+    fn input(&mut self, event: GameEvent) -> Response {
+        self.object.input(event)
     }
 
     fn tick(&mut self, context: &GlobalContext) {
@@ -42,21 +46,10 @@ impl System {
     }
 }
 
-trait SystemObject {
-    fn input(&mut self, event: GameEvent);
+pub trait SystemObject {
+    fn input(&mut self, event: GameEvent) -> Response;
 
     fn tick(&mut self, context: &GlobalContext);
-}
-
-trait IntoSystem {
-    fn make_system(self) -> System;
-}
-impl IntoSystem for Box<dyn SystemObject> {
-    fn make_system(self) -> System {
-        System {
-            object: self,
-        }
-    }
 }
 
 pub struct PlayerControllerSystem {
@@ -69,20 +62,39 @@ impl PlayerControllerSystem {
         camera: Camera,
         controller: Box<dyn CameraController>,
         player_entity: SharedCell<Entity>
-    ) -> Box<Self> {
-        Box::new(Self { camera, controller, player_entity })
+    ) -> GameSystem {
+        GameSystem {
+            object: Box::new(Self { camera, controller, player_entity })
+        }
     }
 }
 impl SystemObject for PlayerControllerSystem {
-    fn input(&mut self, event: GameEvent) {
-        self.controller.input(event);
+    fn input(&mut self, event: GameEvent) -> Response {
+        let used = self.controller.input(event.clone());
+        if used {
+            Response::Strong
+        } else {
+            Response::No
+        }
     }
 
     fn tick(&mut self, context: &GlobalContext) {
         self.controller.update_camera(&mut self.camera, context.size);
-        self.player_entity.borrow_mut().input(GameEvent::SendValueWith {
-            string: "set position".to_string(),
-            value: ValueType::Float3(self.camera.get_pos().into()),
-        })
+
+        // changing the player instance:
+        let point = self.camera.get_pos();
+        let pos = Vector3 {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+        };
+        self.player_entity.borrow_mut().instance_set(pos);
+
+        context.update_camera_uniform(&self.camera);
+
+        // self.player_entity.borrow_mut().input(GameEvent::SendValueWith {
+        //     string: "set position".to_string(),
+        //     value: ValueType::Float3(self.camera.get_pos().into()),
+        // }); // we don't care about the response
     }
 }

@@ -1,4 +1,4 @@
-use std::ops::{Deref, Range};
+use std::ops::Range;
 
 use cgmath::Matrix4;
 use wgpu::RenderPass;
@@ -258,9 +258,9 @@ pub struct Single3DInstance {
     pub instance_id: u32,
 }
 impl Single3DInstance {
-    pub fn new(instance: Instance3D) -> Box<Self> {
+    pub fn new(instance: SharedCell<Instance3D>) -> Box<Self> {
         Box::new(Self {
-            instance: SharedCell::new(instance),
+            instance,
             instance_id: 0,
         })
     }

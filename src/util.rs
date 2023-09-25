@@ -6,7 +6,7 @@ use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
 use crate::entity::{Component, Entity};
-use crate::event::GameEvent;
+use crate::event::{GameEvent, Response};
 
 // ---------------
 //   Shared Cell
@@ -71,7 +71,7 @@ impl ObjectWrap {
         }
     }
 
-    pub fn input(&self, event: GameEvent) {
+    pub fn input(&self, event: GameEvent) -> Response {
         match self {
             ObjectWrap::Entity(entity) => {
                 entity.borrow_mut().input(event)

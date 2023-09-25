@@ -1,6 +1,6 @@
 use cgmath::{Quaternion, Vector3};
 
-use crate::event::GameEvent;
+use crate::event::{GameEvent, Response};
 use crate::GlobalContext;
 use crate::render::{NoRender, RenderCommand, RenderComponent, Single3DInstance};
 use crate::render::instance::Instance3D;
@@ -13,40 +13,45 @@ pub struct EntityManager {
 }
 impl EntityManager {
     pub fn new(id_manager: IdManager) -> Self {
+        let root = SharedCell::new(Entity{
+            id: 0,
+            render_component: NoRender::new(),
+            instance: None,
+            components: vec![],
+            children: vec![],
+        });
         EntityManager {
             id_manager,
-            entities: vec![],
+            entities: vec![root],
         }
     }
 
     pub fn init(&mut self, context: &GlobalContext) {
-        // root entity
-        let no_render = NoRender::new();
-        let root = Entity::new(self, context, no_render);
         // first cube
-        let instance1 = Instance3D {
+        let instance1 = SharedCell::new(Instance3D {
             position: Vector3::new(10.0, 10.0, -1.0),
             rotation: Quaternion::new(1.0, 0.5, 0.0, 0.0),
             model_name: "cube".to_string(),
-        };
-        let render_comp1 = Single3DInstance::new(instance1);
-        let cube1 = Entity::new(self, context, render_comp1);
+        });
+        let cube1 = Entity::new_at_root(
+            self,
+            context,
+            Some(instance1.clone()),
+            Single3DInstance::new(instance1)
+        );
         // second cube
-        let instance2 = Instance3D {
+        let instance2 = SharedCell::new(Instance3D {
             position: Vector3::new(1.0, 2.0, 0.0),
             rotation: Quaternion::new(1.0, 0.5, 0.0, 0.0),
             model_name: "cube".to_string(),
-        };
-        let render_comp2 = Single3DInstance::new(instance2);
-        let cube2 = Entity::new(self, context, render_comp2);
-        {
-            // adding cube2 as a child to cube1
-            cube1.borrow_mut().add_child(cube2.clone());
-        }
-        {
-            // adding cube1 as a child to the root:
-            root.borrow_mut().add_child(cube1);
-        }
+        });
+        let _cube2 = Entity::new(
+            self,
+            context,
+            Some(instance2.clone()),
+            Single3DInstance::new(instance2),
+            Some(cube1)
+        );
     }
 
     pub fn tick(&mut self) {
@@ -63,9 +68,25 @@ impl EntityManager {
         commands
     }
 
-    pub fn register_entity(&mut self, entity: SharedCell<Entity>) {
+    pub fn input_root(&self, event: GameEvent) -> Response {
+        self.get_root().borrow_mut().input(event)
+    }
+
+    pub fn register_entity<T>(&mut self, entity: SharedCell<Entity>, parent: Option<T>)
+    where T: IntoEntity {
         self.id_manager.register_entity(entity.clone());
-        self.entities.push(entity);
+        self.entities.push(entity.clone());
+        let parent_entity = match parent {
+            None => self.get_root().clone(),
+            Some(into_ent) => into_ent.into_entity(&self.id_manager)
+        };
+        parent_entity.borrow_mut().add_child(entity);
+    }
+
+    pub fn get_root(&self) -> &SharedCell<Entity> {
+        self.entities.get(0)
+            .expect("No root entity!!\n\
+         (at space 0 in the EntityManager vector)")
     }
 
     pub fn len(&self) -> usize {
@@ -77,34 +98,60 @@ impl EntityManager {
 pub struct Entity {
     id: u64,
     render_component: Box<dyn RenderComponent>,
+    instance: Option<SharedCell<Instance3D>>, //todo: replace this with the space thing
     components: Vec<Component>,
     children: Vec<SharedCell<Entity>>,
 }
 impl Entity {
-    pub fn new(
+    pub fn new_at_root(
         manager: &mut EntityManager,
         context: &GlobalContext,
-        mut render_component: Box<dyn RenderComponent>
+        instance: Option<SharedCell<Instance3D>>,
+        mut render_component: Box<dyn RenderComponent>,
     ) -> SharedCell<Entity> {
         let id = manager.id_manager.next_id();
         render_component.init(context);
         let entity = Entity {
             id,
             render_component,
+            instance,
             components: vec![],
             children: vec![],
         };
         let cell = SharedCell::new(entity);
-        manager.register_entity(cell.clone());
+        manager.register_entity::<u64>(cell.clone(), None);
+        cell
+    }
+
+    pub fn new<T: IntoEntity>(
+        manager: &mut EntityManager,
+        context: &GlobalContext,
+        instance: Option<SharedCell<Instance3D>>,
+        mut render_component: Box<dyn RenderComponent>,
+        parent: Option<T>
+    ) -> SharedCell<Entity> {
+        let id = manager.id_manager.next_id();
+        render_component.init(context);
+        let entity = Entity {
+            id,
+            render_component,
+            instance,
+            components: vec![],
+            children: vec![],
+        };
+        let cell = SharedCell::new(entity);
+        manager.register_entity(cell.clone(), parent);
         cell
     }
 
     pub fn get_id(&self) -> u64 { self.id }
 
-    pub fn input(&mut self, event: GameEvent) {
+    pub fn input(&mut self, event: GameEvent) -> Response {
+        let mut response = Response::No;
         for component in self.components.iter_mut() {
-            component.input(event.clone());
+            response = response.with(component.input(event.clone()));
         }
+        response
     }
 
     pub fn tick(&mut self) {
@@ -118,9 +165,17 @@ impl Entity {
         }
     }
 
+    // todo: redo this when you implement spaces
+    pub fn instance_set(&mut self, new_pos: Vector3<f32>) {
+        if let Some(instance_cell) = &self.instance {
+            let mut instance = instance_cell.borrow_mut();
+            instance.position = new_pos;
+        }
+    }
+
+    //todo add the transform things
     pub fn render(&self, commands: &mut Vec<RenderCommand>) {
         // rendering self
-        println!(" rendering entity: {}", self.id);
         self.render_component.render(&self, commands);
 
         // rendering children:
@@ -136,6 +191,30 @@ impl Entity {
 }
 
 
+pub trait IntoEntity {
+    fn into_entity(self, id_manager: &IdManager) -> SharedCell<Entity>;
+}
+impl IntoEntity for SharedCell<Entity> {
+    fn into_entity(self, _id_manager: &IdManager) -> SharedCell<Entity> {
+        self.clone()
+    }
+}
+impl IntoEntity for &SharedCell<Entity> {
+    fn into_entity(self, _id_manager: &IdManager) -> SharedCell<Entity> {
+        self.clone()
+    }
+}
+impl IntoEntity for u64 {
+    fn into_entity(self, id_manager: &IdManager) -> SharedCell<Entity> {
+        id_manager.get(self)
+            .expect("Could not find entity with id:{self}")
+            .to_entity()
+            .expect("Object with id:{self} was requested as an Entity, but it's not!")
+    }
+}
+
+
+// todo implement some of these:
 pub struct Component {
     id: u64,
     component_obj: Box<dyn ComponentObject>
@@ -143,8 +222,8 @@ pub struct Component {
 impl Component {
     pub fn get_id(&self) -> u64 { self.id }
 
-    pub fn input(&mut self, event: GameEvent) {
-        self.component_obj.input(event);
+    pub fn input(&mut self, event: GameEvent) -> Response {
+        self.component_obj.input(event)
     }
 
     pub fn tick(&mut self) {
@@ -153,7 +232,7 @@ impl Component {
 }
 
 trait ComponentObject {
-    fn input(&mut self, event: GameEvent);
+    fn input(&mut self, event: GameEvent) -> Response;
 
     fn tick(&mut self);
 }

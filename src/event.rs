@@ -12,6 +12,7 @@ pub enum GameEvent {
     CursorMoved { position: PhysicalPosition<f64> },
     CommandString {target: String, command: String, args: String},
     SendValue (ValueType),
+    SendValueWith {string: String, value: ValueType},
     AttachListener (Listener),  // todo add a 'where' field
 }
 
@@ -25,6 +26,52 @@ pub enum ValueType {
     Float2((f32, f32)),
     Float3((f32, f32, f32)),
     String(String),
+}
+
+#[derive(PartialEq, Debug)]
+pub enum Response {
+    No,
+    Weak,
+    Strong
+}
+impl Response {
+    pub fn with(self, other: Response) -> Response {
+        if self == Response::Strong || other == Response::Strong {
+            return Response::Strong
+        }
+        if self == Response::Weak || other == Response::Weak {
+            return Response::Weak
+        }
+        Response::No
+    }
+
+    pub fn no_response(&self) -> bool {
+        match self {
+            Response::No => true,
+            _ => false,
+        }
+    }
+
+    pub fn at_most_weak(&self) -> bool {
+        match self {
+            Response::Weak | Response::No => true,
+            _ => false,
+        }
+    }
+
+    pub fn at_least_weak(&self) -> bool {
+        match self {
+            Response::Weak | Response::Strong => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_strong(&self) -> bool {
+        match self {
+            Response::Strong => true,
+            _ => false,
+        }
+    }
 }
 
 pub struct EventDispatcher {
