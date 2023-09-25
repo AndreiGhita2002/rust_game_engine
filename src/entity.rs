@@ -13,13 +13,7 @@ pub struct EntityManager {
 }
 impl EntityManager {
     pub fn new(id_manager: IdManager) -> Self {
-        let root = SharedCell::new(Entity{
-            id: 0,
-            render_component: NoRender::new(),
-            instance: None,
-            components: vec![],
-            children: vec![],
-        });
+        let root = Entity::make_root(id_manager.clone());
         EntityManager {
             id_manager,
             entities: vec![root],
@@ -96,11 +90,14 @@ impl EntityManager {
 
 
 pub struct Entity {
+    // the self, the parent and the children
     id: u64,
+    parent_id: u64,
+    children: Vec<SharedCell<Entity>>,
+    // components:
     render_component: Box<dyn RenderComponent>,
     instance: Option<SharedCell<Instance3D>>, //todo: replace this with the space thing
     components: Vec<Component>,
-    children: Vec<SharedCell<Entity>>,
 }
 impl Entity {
     pub fn new_at_root(
@@ -113,6 +110,7 @@ impl Entity {
         render_component.init(context);
         let entity = Entity {
             id,
+            parent_id: 0,
             render_component,
             instance,
             components: vec![],
@@ -132,8 +130,13 @@ impl Entity {
     ) -> SharedCell<Entity> {
         let id = manager.id_manager.next_id();
         render_component.init(context);
+        let parent_id = match &parent {
+            None => 0,
+            Some(parent) => parent.get_id(),
+        };
         let entity = Entity {
             id,
+            parent_id,
             render_component,
             instance,
             components: vec![],
@@ -141,6 +144,20 @@ impl Entity {
         };
         let cell = SharedCell::new(entity);
         manager.register_entity(cell.clone(), parent);
+        cell
+    }
+
+    pub fn make_root(id_manager: IdManager) -> SharedCell<Self> {
+        let root = Entity{
+            id: 0,
+            parent_id: 0,
+            render_component: NoRender::new(),
+            instance: None,
+            components: vec![],
+            children: vec![],
+        };
+        let cell = SharedCell::new(root);
+        id_manager.register_entity(cell.clone());
         cell
     }
 
@@ -193,15 +210,25 @@ impl Entity {
 
 pub trait IntoEntity {
     fn into_entity(self, id_manager: &IdManager) -> SharedCell<Entity>;
+
+    fn get_id(&self) -> u64;
 }
 impl IntoEntity for SharedCell<Entity> {
     fn into_entity(self, _id_manager: &IdManager) -> SharedCell<Entity> {
         self.clone()
     }
+
+    fn get_id(&self) -> u64 {
+        self.borrow().id
+    }
 }
 impl IntoEntity for &SharedCell<Entity> {
     fn into_entity(self, _id_manager: &IdManager) -> SharedCell<Entity> {
         self.clone()
+    }
+
+    fn get_id(&self) -> u64 {
+        self.borrow().id
     }
 }
 impl IntoEntity for u64 {
@@ -210,6 +237,10 @@ impl IntoEntity for u64 {
             .expect("Could not find entity with id:{self}")
             .to_entity()
             .expect("Object with id:{self} was requested as an Entity, but it's not!")
+    }
+
+    fn get_id(&self) -> u64 {
+        *self
     }
 }
 
