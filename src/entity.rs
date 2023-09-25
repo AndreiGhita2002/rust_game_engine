@@ -89,6 +89,7 @@ impl EntityManager {
 }
 
 
+#[allow(dead_code)]
 pub struct Entity {
     // the self, the parent and the children
     id: u64,

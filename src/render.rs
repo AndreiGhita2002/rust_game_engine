@@ -23,6 +23,7 @@ pub struct LightUniform {
     pub _padding2: u32,
 }
 
+#[allow(dead_code)]
 pub struct Renderer {
     label: String,
     render_pipeline: wgpu::RenderPipeline,

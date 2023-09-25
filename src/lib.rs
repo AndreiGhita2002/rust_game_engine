@@ -1,8 +1,10 @@
 use std::ops::{Deref, DerefMut};
 
+use cfg_if::cfg_if;
 use cgmath::{Quaternion, Rotation3, Vector3};
 use wgpu::Buffer;
 use wgpu::util::DeviceExt;
+use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Fullscreen, Window, WindowBuilder};
@@ -290,7 +292,7 @@ impl GlobalContext {
         self.entity_manager.borrow_mut().tick();
 
         // Update the light
-        let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
+        let old_position: Vector3<_> = self.light_uniform.position.into();
         self.light_uniform.position =
             (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0))
                 * old_position)
@@ -301,7 +303,7 @@ impl GlobalContext {
         self.instance_manager.borrow_mut().tick(&self);
 
         // move the cursor to the center of the screen:
-        // self.set_cursor_to_center();
+        self.set_cursor_to_center();
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -386,6 +388,20 @@ impl GlobalContext {
         pollster::block_on(async {
             self.async_load_model(file_name).await
         });
+    }
+
+    pub fn set_cursor_to_center(&mut self) {
+        if self.window.has_focus() {
+            cfg_if! {
+                if #[cfg(target_arch = "wasm32")] {
+                    //todo figure out how you do mouse look on web
+                } else {
+                    self.window.set_cursor_position(
+                        PhysicalPosition::new(self.size.width / 2, self.size.height / 2)
+                    ).unwrap_or_else(|_| println!("Cursor could not be moved!"));
+                }
+            }
+        }
     }
 }
 
