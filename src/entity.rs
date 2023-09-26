@@ -33,6 +33,16 @@ impl EntityManager {
             Some(instance1.clone()),
             Single3DInstance::new(instance1)
         );
+
+        self.new_entity(EntityDesc{
+            render_component: Single3DInstance::new(),
+            position: Vector3 {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            ..Default::default()
+        }, 0, &context);
         // second cube
         let instance2 = SharedCell::new(Instance3D {
             position: Vector3::new(1.0, 2.0, 0.0),
@@ -46,6 +56,33 @@ impl EntityManager {
             Single3DInstance::new(instance2),
             Some(cube1)
         );
+    }
+
+    pub fn new_entity<T>(&mut self, entity_desc: EntityDesc, parent: T, context: &GlobalContext) -> u64
+    where T: EntityRef {
+        // creating the new entity
+        let (render_component, position, components) = entity_desc.unpack();
+        let entity = SharedCell::new(Entity {
+            id: self.id_manager.next_id(),
+            parent_id: parent.get_id(),
+            children: vec![],
+            render_component,
+            instance: Some(SharedCell::new(Instance3D {
+                position,
+                rotation: Quaternion::new(1.0, 0.5, 0.0, 0.0),
+                model_name: "cube".to_string(),
+            })),
+            components,
+        });
+        // registering the new entity:
+        self.id_manager.register_entity(entity.clone());
+        self.entities.push(entity.clone());
+        let parent_entity = parent.into_entity(&self.id_manager);
+        parent_entity.borrow_mut().add_child(entity);
+        // initialising it:
+        let mut entity_b = entity.borrow_mut();
+        entity_b.init(context);
+        entity_b.id
     }
 
     pub fn tick(&mut self) {
@@ -66,17 +103,6 @@ impl EntityManager {
         self.get_root().borrow_mut().input(event)
     }
 
-    pub fn register_entity<T>(&mut self, entity: SharedCell<Entity>, parent: Option<T>)
-    where T: IntoEntity {
-        self.id_manager.register_entity(entity.clone());
-        self.entities.push(entity.clone());
-        let parent_entity = match parent {
-            None => self.get_root().clone(),
-            Some(into_ent) => into_ent.into_entity(&self.id_manager)
-        };
-        parent_entity.borrow_mut().add_child(entity);
-    }
-
     pub fn get_root(&self) -> &SharedCell<Entity> {
         self.entities.get(0)
             .expect("No root entity!!\n\
@@ -94,58 +120,18 @@ pub struct Entity {
     // the self, the parent and the children
     id: u64,
     parent_id: u64,
-    children: Vec<SharedCell<Entity>>,
+    pub children: Vec<SharedCell<Entity>>,
     // components:
-    render_component: Box<dyn RenderComponent>,
-    instance: Option<SharedCell<Instance3D>>, //todo: replace this with the space thing
-    components: Vec<Component>,
+    pub render_component: Box<dyn RenderComponent>,
+    pub instance: Option<SharedCell<Instance3D>>, //todo: replace this with the space thing
+    pub components: Vec<Component>,        // also todo: make these not public
 }
 impl Entity {
-    pub fn new_at_root(
-        manager: &mut EntityManager,
-        context: &GlobalContext,
-        instance: Option<SharedCell<Instance3D>>,
-        mut render_component: Box<dyn RenderComponent>,
-    ) -> SharedCell<Entity> {
-        let id = manager.id_manager.next_id();
-        render_component.init(context);
-        let entity = Entity {
-            id,
-            parent_id: 0,
-            render_component,
-            instance,
-            components: vec![],
-            children: vec![],
-        };
-        let cell = SharedCell::new(entity);
-        manager.register_entity::<u64>(cell.clone(), None);
-        cell
-    }
-
-    pub fn new<T: IntoEntity>(
-        manager: &mut EntityManager,
-        context: &GlobalContext,
-        instance: Option<SharedCell<Instance3D>>,
-        mut render_component: Box<dyn RenderComponent>,
-        parent: Option<T>
-    ) -> SharedCell<Entity> {
-        let id = manager.id_manager.next_id();
-        render_component.init(context);
-        let parent_id = match &parent {
-            None => 0,
-            Some(parent) => parent.get_id(),
-        };
-        let entity = Entity {
-            id,
-            parent_id,
-            render_component,
-            instance,
-            components: vec![],
-            children: vec![],
-        };
-        let cell = SharedCell::new(entity);
-        manager.register_entity(cell.clone(), parent);
-        cell
+    pub fn init(&mut self, context: &GlobalContext) {
+        self.render_component.init(context);
+        for component in self.components.iter_mut() {
+            component.init(context);
+        }
     }
 
     pub fn make_root(id_manager: IdManager) -> SharedCell<Self> {
@@ -209,12 +195,33 @@ impl Entity {
 }
 
 
-pub trait IntoEntity {
+pub struct EntityDesc {
+    pub render_component: Box<dyn RenderComponent>,
+    pub position: Vector3<f32>,   //todo replace with space location
+    pub components: Vec<Component>,
+}
+impl EntityDesc {
+    pub fn unpack(self) -> (Box<dyn RenderComponent>, Vector3<f32>, Vec<Component>) {
+        (self.render_component, self.position, self.components)
+    }
+}
+impl Default for EntityDesc {
+    fn default() -> Self {
+        EntityDesc {
+            render_component: NoRender::new(),
+            position: Vector3::new(0.0, 0.0, 0.0),
+            components: vec![],
+        }
+    }
+}
+
+
+pub trait EntityRef {
     fn into_entity(self, id_manager: &IdManager) -> SharedCell<Entity>;
 
     fn get_id(&self) -> u64;
 }
-impl IntoEntity for SharedCell<Entity> {
+impl EntityRef for SharedCell<Entity> {
     fn into_entity(self, _id_manager: &IdManager) -> SharedCell<Entity> {
         self.clone()
     }
@@ -223,7 +230,7 @@ impl IntoEntity for SharedCell<Entity> {
         self.borrow().id
     }
 }
-impl IntoEntity for &SharedCell<Entity> {
+impl EntityRef for &SharedCell<Entity> {
     fn into_entity(self, _id_manager: &IdManager) -> SharedCell<Entity> {
         self.clone()
     }
@@ -232,7 +239,7 @@ impl IntoEntity for &SharedCell<Entity> {
         self.borrow().id
     }
 }
-impl IntoEntity for u64 {
+impl EntityRef for u64 {
     fn into_entity(self, id_manager: &IdManager) -> SharedCell<Entity> {
         id_manager.get(self)
             .expect("Could not find entity with id:{self}")
@@ -254,6 +261,14 @@ pub struct Component {
 impl Component {
     pub fn get_id(&self) -> u64 { self.id }
 
+    fn init(&mut self, context: &GlobalContext) {
+        self.component_obj.init(context)
+    }
+
+    fn init_child_entity(&self, child_entity: SharedCell<Entity>) {
+        self.component_obj.init_child_entity(child_entity)
+    }
+
     pub fn input(&mut self, event: GameEvent) -> Response {
         self.component_obj.input(event)
     }
@@ -264,6 +279,10 @@ impl Component {
 }
 
 trait ComponentObject {
+    fn init(&mut self, context: &GlobalContext);
+
+    fn init_child_entity(&self, child_entity: SharedCell<Entity>);
+
     fn input(&mut self, event: GameEvent) -> Response;
 
     fn tick(&mut self);

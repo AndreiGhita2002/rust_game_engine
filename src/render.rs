@@ -245,7 +245,7 @@ impl RenderCommand {
 }
 
 pub trait RenderComponent {
-    fn init(&mut self, context: &GlobalContext);
+    fn init(&mut self, context: &GlobalContext, entity: &Entity);
 
     fn render(&self, entity: &Entity, commands: &mut Vec<RenderCommand>);
 
@@ -255,26 +255,23 @@ pub trait RenderComponent {
 }
 
 pub struct Single3DInstance {
-    pub instance: SharedCell<Instance3D>,  //todo: this kinda needs to be in entity
     pub instance_id: u32,
 }
 impl Single3DInstance {
-    pub fn new(instance: SharedCell<Instance3D>) -> Box<Self> {
-        Box::new(Self {
-            instance,
-            instance_id: 0,
-        })
+    pub fn new() -> Box<Self> {
+        Box::new(Self { instance_id: 0, })
     }
 }
 impl RenderComponent for Single3DInstance {
-    fn init(&mut self, context: &GlobalContext) {
-        let id = context.register_instance_3d(self.instance.clone());
+    fn init(&mut self, context: &GlobalContext, entity: &Entity) {
+        let id = context.register_instance_3d(entity.instance.unwrap().clone());
         self.instance_id = id as u32;
     }
 
-    fn render(&self, _entity: &Entity, commands: &mut Vec<RenderCommand>) {
+    fn render(&self, entity: &Entity, commands: &mut Vec<RenderCommand>) {
+
         commands.push(RenderCommand {
-            model: self.instance.borrow().model_name.clone(),
+            model: entity.instance.borrow().model_name.clone(),
             transform: None,
             instances: Some(self.instance_id..(self.instance_id+1)),
         })
@@ -296,7 +293,7 @@ impl NoRender {
     }
 }
 impl RenderComponent for NoRender {
-    fn init(&mut self, _context: &GlobalContext) {}
+    fn init(&mut self, _context: &GlobalContext, _entity: &Entity) {}
 
     fn render(&self, _entity: &Entity, _commands: &mut Vec<RenderCommand>) {}
 
