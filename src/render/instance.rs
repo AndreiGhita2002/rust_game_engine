@@ -100,6 +100,16 @@ impl Instance3D {
         }
     }
 }
+impl Default for Instance3D {
+    fn default() -> Self {
+        Instance3D {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::new(1.0, 0.0, 0.0, 0.0),
+            model_name: "default".to_string(),
+        }
+    }
+}
+
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
