@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 use cfg_if::cfg_if;
 use cgmath::{Quaternion, Rotation3, Vector3};
@@ -12,7 +12,7 @@ use winit::window::{Fullscreen, Window, WindowBuilder};
 use render::texture::Texture;
 
 use crate::camera::{Camera, CameraUniform, FreeCamController};
-use crate::entity::{Entity, EntityManager};
+use crate::entity::{EntityDesc, EntityManager};
 use crate::event::{EventDispatcher, GameEvent};
 use crate::render::{LightUniform, NoRender, Renderer};
 use crate::render::instance::{Instance3D, InstanceManager};
@@ -414,18 +414,12 @@ fn test_init(context: &mut GlobalContext) {
     let mut entity_manager = context.entity_manager.borrow_mut();
     entity_manager.init(&context);
 
-    let player_instance = SharedCell::new(Instance3D {
+    let player = entity_manager.new_entity(EntityDesc {
+        render_component: NoRender::new(),
         position: Vector3::new(0.0, 0.0, 0.0),
-        rotation: Quaternion::new(1.0, 0.0, 0.0, 0.0),
-        model_name: "".to_string(),
-    });
+        components: vec![],
+    }, 0, &context);
 
-    let player = Entity::new_at_root(
-        entity_manager.deref_mut(),
-        context,
-        Some(player_instance),
-        NoRender::new()
-    );
     let player_controller = PlayerControllerSystem::new(
         Camera::default(),
         Box::new(FreeCamController::default()),

@@ -4,7 +4,7 @@ use cgmath::Matrix4;
 use wgpu::RenderPass;
 
 use crate::{BindGroups, GlobalContext};
-use crate::entity::Entity;
+use crate::entity::{Component, Entity};
 use crate::render::instance::{Instance3D, InstanceManager};
 use crate::util::SharedCell;
 
@@ -245,7 +245,7 @@ impl RenderCommand {
 }
 
 pub trait RenderComponent {
-    fn init(&mut self, context: &GlobalContext, entity: &Entity);
+    fn init(&mut self, context: &GlobalContext, instance: &SharedCell<Instance3D>, components: &Vec<Component>);
 
     fn render(&self, entity: &Entity, commands: &mut Vec<RenderCommand>);
 
@@ -263,9 +263,9 @@ impl Single3DInstance {
     }
 }
 impl RenderComponent for Single3DInstance {
-    fn init(&mut self, context: &GlobalContext, entity: &Entity) {
-        let id = context.register_instance_3d(entity.instance.unwrap().clone());
-        self.instance_id = id as u32;
+    fn init(&mut self, context: &GlobalContext, instance: &SharedCell<Instance3D>, _components: &Vec<Component>) {
+        let instance_id = context.register_instance_3d(instance.clone());
+        self.instance_id = instance_id as u32;
     }
 
     fn render(&self, entity: &Entity, commands: &mut Vec<RenderCommand>) {
@@ -293,7 +293,7 @@ impl NoRender {
     }
 }
 impl RenderComponent for NoRender {
-    fn init(&mut self, _context: &GlobalContext, _entity: &Entity) {}
+    fn init(&mut self, _context: &GlobalContext, _instance: &SharedCell<Instance3D>, _components: &Vec<Component>) {}
 
     fn render(&self, _entity: &Entity, _commands: &mut Vec<RenderCommand>) {}
 
