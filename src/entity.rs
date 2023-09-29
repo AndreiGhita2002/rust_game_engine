@@ -69,10 +69,12 @@ impl EntityManager {
 
         // going through all of the entities parents and letting them init the new entity:
         let mut parent_id = p_id;
+        let mut depth = 0;
         while parent_id != 0 {
             let current_parent = self.id_manager.get(parent_id).unwrap().to_entity().unwrap();
             let current_parent_b = current_parent.borrow();
-            current_parent_b.init_child(context, entity.clone());
+            current_parent_b.init_child(context, entity.clone(), depth);
+            depth += 1;
             parent_id = current_parent_b.parent_id;
         }
         // initialising the entity:
@@ -136,10 +138,10 @@ impl Entity {
         }
     }
 
-    pub fn init_child(&self, context: &GlobalContext, child: SharedCell<Entity>) {
+    pub fn init_child(&self, context: &GlobalContext, child: SharedCell<Entity>, depth: i32) {
         // all the components get the chance to edit the new child:
         for component in self.components.iter() {
-            component.init_child_entity(context, child.clone())
+            component.init_child_entity(context, child.clone(), depth)
         }
     }
 
@@ -272,8 +274,8 @@ impl Component {
         self.component_obj.init(context)
     }
 
-    fn init_child_entity(&self, context: &GlobalContext, child_entity: SharedCell<Entity>) {
-        self.component_obj.init_child_entity(context, child_entity)
+    fn init_child_entity(&self, context: &GlobalContext, child_entity: SharedCell<Entity>, depth: i32) {
+        self.component_obj.init_child_entity(context, child_entity, depth)
     }
 
     pub fn input(&mut self, event: GameEvent) -> Response {
@@ -288,7 +290,7 @@ impl Component {
 trait ComponentObject {
     fn init(&mut self, context: &GlobalContext);
 
-    fn init_child_entity(&self, context: &GlobalContext, child_entity: SharedCell<Entity>);
+    fn init_child_entity(&self, context: &GlobalContext, child_entity: SharedCell<Entity>, depth: i32);
 
     fn input(&mut self, event: GameEvent) -> Response;
 
