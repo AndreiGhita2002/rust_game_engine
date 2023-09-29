@@ -51,6 +51,47 @@ impl<T: PartialEq> PartialEq for SharedCell<T> {
     }
 }
 
+// -------------------
+//   Buffer and Refs
+// -------------------
+//  not multi thread safe
+//    such a struct would be possible and v useful at some point
+struct QueueBuffer<T: Clone> {
+    inner_ref: SharedCell<QueueBufferRef<T>>,
+}
+struct QueueBufferRef<T: Clone> {
+    buffer: Vec<T>,
+}
+impl<T: Clone> QueueBuffer<T> {
+    pub fn new() -> Self {
+        QueueBuffer {
+            inner_ref: SharedCell::new(QueueBufferRef::new()),
+        }
+    }
+
+    pub fn get_ref(&self) -> SharedCell<QueueBufferRef<T>> {
+        self.inner_ref.clone()
+    }
+
+    pub fn get_buffer(&mut self) -> Vec<T> {
+        let mut inner = self.inner_ref.borrow_mut();
+        let buf = inner.buffer.clone();
+        inner.buffer = Vec::new();
+        buf
+    }
+}
+impl<T: Clone> QueueBufferRef<T> {
+    pub fn new() -> Self {
+        QueueBufferRef {
+            buffer: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, e: T) {
+        self.buffer.push(e)
+    }
+}
+
 // --------------
 //   Id Manager
 // --------------
