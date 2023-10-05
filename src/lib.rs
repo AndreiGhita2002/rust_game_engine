@@ -14,18 +14,19 @@ use render::texture::Texture;
 use crate::camera::{Camera, CameraUniform, FreeCamController};
 use crate::entity::{EntityDesc, EntityManager};
 use crate::event::{EventDispatcher, GameEvent};
-use crate::render::{LightUniform, NoRender, Renderer};
-use crate::render::instance::{Instance3D, InstanceManager};
+use crate::render::{LightUniform, Renderer};
+use crate::render::instance::InstanceManager;
 use crate::system::{PlayerControllerSystem, SystemManager};
 use crate::util::{IdManager, SharedCell};
 
-mod util;
-mod entity;
-mod render;
 mod camera;
+mod entity;
 mod event;
+mod render;
 mod resources;
+mod space;
 mod system;
+mod util;
 
 pub struct BindGroups {
     pub texture_layout: wgpu::BindGroupLayout,
@@ -77,32 +78,40 @@ impl GlobalContext {
         // State owns the window so this should be safe.
         let surface = unsafe { instance.create_surface(&window) }.unwrap();
 
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }).await.unwrap();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .unwrap();
 
-        let (device, queue) = adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                features: wgpu::Features::empty(),
-                // WebGL doesn't support all of wgpu's features, so if
-                // we're building for the web we'll have to disable some.
-                limits: if cfg!(target_arch = "wasm32") {
-                    wgpu::Limits::downlevel_webgl2_defaults()
-                } else {
-                    wgpu::Limits::default()
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    features: wgpu::Features::empty(),
+                    // WebGL doesn't support all of wgpu's features, so if
+                    // we're building for the web we'll have to disable some.
+                    limits: if cfg!(target_arch = "wasm32") {
+                        wgpu::Limits::downlevel_webgl2_defaults()
+                    } else {
+                        wgpu::Limits::default()
+                    },
+                    label: None,
                 },
-                label: None,
-            },
-            None, // Trace path
-        ).await.unwrap();
+                None, // Trace path
+            )
+            .await
+            .unwrap();
 
         let surface_caps = surface.get_capabilities(&adapter);
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
         // one will result all the colors coming out darker. If you want to support non
         // sRGB surfaces, you'll need to account for that when drawing to the frame.
-        let surface_format = surface_caps.formats.iter()
+        let surface_format = surface_caps
+            .formats
+            .iter()
             .copied()
             .filter(|f| f.is_srgb())
             .next()
@@ -119,29 +128,30 @@ impl GlobalContext {
         surface.configure(&device, &config);
 
         // image stuff:
-        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    // This should match the filterable field of the
-                    // corresponding Texture entry above.
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("texture_bind_group_layout"),
-        });
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        // This should match the filterable field of the
+                        // corresponding Texture entry above.
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("texture_bind_group_layout"),
+            });
 
         // camera:
         // let camera = Camera::default().with_aspect(config.width as f32 / config.height as f32);
@@ -151,9 +161,9 @@ impl GlobalContext {
             contents: bytemuck::cast_slice(&[camera_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
@@ -162,18 +172,15 @@ impl GlobalContext {
                         min_binding_size: None,
                     },
                     count: None,
-                }
-            ],
-            label: Some("camera_bind_group_layout"),
-        });
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                }
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
             label: Some("camera_bind_group"),
         });
 
@@ -187,14 +194,12 @@ impl GlobalContext {
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
         };
-        let light_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Light VB"),
-                contents: bytemuck::cast_slice(&[light_uniform]),
-                // We'll want to update our lights position, so we use COPY_DST
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }
-        );
+        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Light VB"),
+            contents: bytemuck::cast_slice(&[light_uniform]),
+            // We'll want to update our lights position, so we use COPY_DST
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
         let light_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -223,7 +228,7 @@ impl GlobalContext {
             texture_layout: texture_bind_group_layout,
             light_layout: light_bind_group_layout,
             camera: camera_bind_group,
-            light: light_bind_group
+            light: light_bind_group,
         };
 
         // managers:
@@ -234,14 +239,16 @@ impl GlobalContext {
         let system_manager = SharedCell::new(SystemManager::new());
 
         // renderers:
-        let renderer_3d = render::preset_renderers::preset_renderer_3d(
-            &device,
-            &config,
-            &bind_groups,
-        );
+        let renderer_3d =
+            render::preset_renderers::preset_renderer_3d(&device, &config, &bind_groups);
 
         Self {
-            surface, device, queue, config, size, window,
+            surface,
+            device,
+            queue,
+            config,
+            size,
+            window,
             bind_groups,
             renderer_3d,
             camera_buffer,
@@ -268,7 +275,8 @@ impl GlobalContext {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
         }
-        self.depth_texture = Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+        self.depth_texture =
+            Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
     }
 
     pub fn input(&mut self, event: GameEvent) {
@@ -294,10 +302,13 @@ impl GlobalContext {
         // Update the light
         let old_position: Vector3<_> = self.light_uniform.position.into();
         self.light_uniform.position =
-            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0))
-                * old_position)
+            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0)) * old_position)
                 .into();
-        self.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light_uniform]));
+        self.queue.write_buffer(
+            &self.light_buffer,
+            0,
+            bytemuck::cast_slice(&[self.light_uniform]),
+        );
 
         // instance updates:
         self.instance_manager.borrow_mut().tick(&self);
@@ -309,10 +320,14 @@ impl GlobalContext {
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let instance_manager = self.instance_manager.borrow();
         let output = self.surface.get_current_texture()?;
-        let texture_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
+        let texture_view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
         // rendering through the view graph:
         let commands = self.entity_manager.borrow().render();
         {
@@ -324,17 +339,15 @@ impl GlobalContext {
                         view: &texture_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(
-                                wgpu::Color {
-                                    r: self.background[0],
-                                    g: self.background[1],
-                                    b: self.background[2],
-                                    a: self.background[3],
-                                }
-                            ),
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: self.background[0],
+                                g: self.background[1],
+                                b: self.background[2],
+                                a: self.background[3],
+                            }),
                             store: true,
-                        }
-                    })
+                        },
+                    }),
                 ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_texture.view,
@@ -345,7 +358,12 @@ impl GlobalContext {
                     stencil_ops: None,
                 }),
             });
-            self.renderer_3d.render(render_pass, commands, instance_manager.deref(), &self.bind_groups);
+            self.renderer_3d.render(
+                render_pass,
+                commands,
+                instance_manager.deref(),
+                &self.bind_groups,
+            );
         }
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -356,14 +374,10 @@ impl GlobalContext {
     // -----------------------
     //    Utility functions
     // -----------------------
-    pub fn register_instance_3d(&self, instance_3d: SharedCell<Instance3D>) -> usize {
-        let mut instance_manager = self.instance_manager.borrow_mut();
-        instance_manager.register_instance(instance_3d)
-    }
-
     pub fn update_camera_uniform(&self, camera: &Camera) {
         let uniform = camera.create_uniform();
-        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[uniform]));
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[uniform]));
     }
 
     pub async fn async_load_model(&self, file_name: &str) {
@@ -373,21 +387,26 @@ impl GlobalContext {
         }
 
         print!("[RES] Loading model {file_name}: ");
-        match instance_manager.load_model(
-            file_name,
-            &self.device,
-            &self.queue,
-            &self.bind_groups.texture_layout
-        ).await {
-            Ok(_) => {println!(" OK")}
-            Err(e) => {println!(" ERROR: {e}")}
+        match instance_manager
+            .load_model(
+                file_name,
+                &self.device,
+                &self.queue,
+                &self.bind_groups.texture_layout,
+            )
+            .await
+        {
+            Ok(_) => {
+                println!(" OK")
+            }
+            Err(e) => {
+                println!(" ERROR: {e}")
+            }
         }
     }
 
     pub fn load_model(&self, file_name: &str) {
-        pollster::block_on(async {
-            self.async_load_model(file_name).await
-        });
+        pollster::block_on(async { self.async_load_model(file_name).await });
     }
 
     pub fn set_cursor_to_center(&mut self) {
@@ -413,22 +432,29 @@ fn test_init(context: &mut GlobalContext) {
     // setup the entity manager
     let mut entity_manager = context.entity_manager.borrow_mut();
     entity_manager.init(&context);
+    entity_manager.print_entities();
 
-    let player = entity_manager.new_entity(EntityDesc {
-        render_component: NoRender::new(),
-        position: Vector3::new(0.0, 0.0, 0.0),
-        components: vec![],
-    }, 0, &context);
+    let player = entity_manager.new_entity(
+        EntityDesc {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            components: vec![],
+        },
+        0,
+        &context,
+    );
 
     let player_controller = PlayerControllerSystem::new(
         Camera::default(),
         Box::new(FreeCamController::default()),
-        player
+        player,
     );
-    context.system_manager.borrow_mut().add_system(player_controller);
+    context
+        .system_manager
+        .borrow_mut()
+        .add_system(player_controller);
 }
 
-#[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
     // start the logger
     cfg_if::cfg_if! {
@@ -477,16 +503,20 @@ pub async fn run() {
     // event loop
     event_loop.run(move |event, _, control_flow| {
         match event {
-            Event::WindowEvent { ref event, window_id, }
-            if window_id == context.window().id() => {
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == context.window().id() => {
                 // view_root_input(&mut view_root, event);
                 match event {
-                    WindowEvent::CloseRequested | WindowEvent::KeyboardInput {
-                        input: KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
-                            ..
-                        },
+                    WindowEvent::CloseRequested
+                    | WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::Escape),
+                                ..
+                            },
                         ..
                     } => *control_flow = ControlFlow::Exit,
                     WindowEvent::Resized(physical_size) => {
@@ -496,17 +526,22 @@ pub async fn run() {
                         context.resize(**new_inner_size);
                     }
                     WindowEvent::KeyboardInput {
-                        input: KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::F4),
-                            ..
-                        },
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::F4),
+                                ..
+                            },
                         ..
                     } => {
-                        context.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                        context
+                            .window
+                            .set_fullscreen(Some(Fullscreen::Borderless(None)));
                     }
-                    _ => if let Some(event) = GameEvent::from_winit_event(event) {
-                        context.input(event)
+                    _ => {
+                        if let Some(event) = GameEvent::from_winit_event(event) {
+                            context.input(event)
+                        }
                     }
                 }
             }

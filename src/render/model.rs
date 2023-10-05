@@ -74,8 +74,6 @@ impl Vertex for SpriteVertex {
     }
 }
 
-
-
 pub struct Model {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,
@@ -96,8 +94,13 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn from_vertices<T: Vertex>(vertices: Vec<T>, indices: Vec<u32>,
-                         name: &str, material: Option<usize>, device: &Device) -> Self {
+    pub fn from_vertices<T: Vertex>(
+        vertices: Vec<T>,
+        indices: Vec<u32>,
+        name: &str,
+        material: Option<usize>,
+        device: &Device,
+    ) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("{:?} Vertex Buffer", name)),
             contents: bytemuck::cast_slice(&vertices),
@@ -121,20 +124,22 @@ impl Mesh {
 
 impl Material {
     pub fn from_texture(mat_name: &str, texture: Texture, context: &GlobalContext) -> Material {
-        let bind_group = context.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &context.bind_groups.texture_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                },
-            ],
-            label: None,
-        });
+        let bind_group = context
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &context.bind_groups.texture_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&texture.sampler),
+                    },
+                ],
+                label: None,
+            });
         Material {
             name: mat_name.to_string(),
             diffuse_texture: texture,
@@ -143,15 +148,11 @@ impl Material {
     }
 
     pub fn from_texture_file(filename: &str, context: &GlobalContext) -> Material {
-        let f = async {
-            resources::load_texture(filename, &context.device, &context.queue)
-                .await
-        };
+        let f = async { resources::load_texture(filename, &context.device, &context.queue).await };
         let diffuse_texture = pollster::block_on(f).unwrap();
         Self::from_texture(filename, diffuse_texture, context)
     }
 }
-
 
 #[derive(Clone, Debug, Default)]
 #[allow(dead_code)]
@@ -164,20 +165,22 @@ pub struct ModelBlueprint {
 #[allow(dead_code)]
 impl ModelBlueprint {
     pub fn into_model(self, context: &GlobalContext) -> (String, Model) {
-        let mesh_vertices = self.vertices.iter().map(|vertex| {
-            ModelVertex {
+        let mesh_vertices = self
+            .vertices
+            .iter()
+            .map(|vertex| ModelVertex {
                 position: [vertex.0, vertex.1, vertex.2],
                 tex_coords: [vertex.0, vertex.1],
                 normal: [0.0, 0.0, 0.0],
-            }
-        }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         let mesh = Mesh::from_vertices(
             mesh_vertices,
             self.indices,
             &self.name,
             None,
-            &context.device
+            &context.device,
         );
 
         let material = Material::from_texture_file(&self.diffuse_texture_name, context);
@@ -190,7 +193,6 @@ impl ModelBlueprint {
         (self.name, model)
     }
 }
-
 
 impl std::fmt::Display for Model {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

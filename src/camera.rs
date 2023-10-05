@@ -99,8 +99,7 @@ impl fmt::Display for Camera {
                 znear: {},
                 zfar: {},
             ]",
-            self.eye, self.target, self.up,
-            self.aspect, self.fovy, self.znear, self.zfar
+            self.eye, self.target, self.up, self.aspect, self.fovy, self.znear, self.zfar
         )
     }
 }
@@ -126,7 +125,6 @@ impl CameraUniform {
         self.view_proj = (OPENGL_TO_WGPU_MATRIX * camera.build_view_projection_matrix()).into();
     }
 }
-
 
 pub trait CameraController {
     fn input(&mut self, event: GameEvent) -> bool;
@@ -165,16 +163,17 @@ impl Default for FreeCamController {
 impl CameraController for FreeCamController {
     fn input(&mut self, event: GameEvent) -> bool {
         match event {
-            GameEvent::CursorMoved {position, ..} => {
+            GameEvent::CursorMoved { position, .. } => {
                 self.current_cursor = (position.x, position.y);
                 false
             }
             GameEvent::KeyboardInput {
-                input: KeyboardInput {
-                    state,
-                    virtual_keycode: Some(keycode),
-                    ..
-                },
+                input:
+                    KeyboardInput {
+                        state,
+                        virtual_keycode: Some(keycode),
+                        ..
+                    },
                 ..
             } => {
                 let is_pressed = state == ElementState::Pressed;
@@ -203,7 +202,7 @@ impl CameraController for FreeCamController {
                         self.is_down_pressed = is_pressed;
                         true
                     }
-                    _ => false
+                    _ => false,
                 }
             }
             _ => false,
@@ -245,9 +244,14 @@ impl CameraController for FreeCamController {
             camera.eye -= up_vec;
             camera.target -= up_vec;
         }
-        let center = (screen_size.width as f64 / 2.0, screen_size.height as f64 / 2.0);
-        let cursor_diff = (-center.0 + self.current_cursor.0,
-                           center.1 - self.current_cursor.1);
+        let center = (
+            screen_size.width as f64 / 2.0,
+            screen_size.height as f64 / 2.0,
+        );
+        let cursor_diff = (
+            -center.0 + self.current_cursor.0,
+            center.1 - self.current_cursor.1,
+        );
         // self.screen_centre.set(self.current_cursor);
         let right = forward_norm.cross(camera.up);
         let mut v = (cursor_diff.0 as f32 * right) + (cursor_diff.1 as f32 * camera.up);

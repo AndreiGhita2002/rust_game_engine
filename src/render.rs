@@ -5,8 +5,7 @@ use wgpu::RenderPass;
 
 use crate::{BindGroups, GlobalContext};
 use crate::entity::{Component, Entity};
-use crate::render::instance::{Instance3D, InstanceManager};
-use crate::util::SharedCell;
+use crate::render::instance::{InstanceManager, InstanceRef};
 
 pub mod instance;
 pub mod model;
@@ -103,7 +102,8 @@ impl Renderer {
         instance_manager: &'a InstanceManager,
         bind_groups: &'a BindGroups,
     ) {
-        self.render_fn_object.render_init(render_pass, &self, instance_manager, bind_groups)
+        self.render_fn_object
+            .render_init(render_pass, &self, instance_manager, bind_groups)
     }
 
     fn render_command<'a>(
@@ -113,7 +113,8 @@ impl Renderer {
         instance_manager: &'a InstanceManager,
         bind_groups: &'a BindGroups,
     ) {
-        self.render_fn_object.render(render_pass, command, &self, instance_manager, bind_groups)
+        self.render_fn_object
+            .render(render_pass, command, &self, instance_manager, bind_groups)
     }
 
     pub fn render<'a>(
@@ -158,7 +159,7 @@ pub mod preset_renderers {
         };
 
         // render functions:
-        let render_fn_object = Box::new(StandardRender3d{});
+        let render_fn_object = Box::new(StandardRender3d {});
 
         Renderer::new(
             "3D Render Pipeline",
@@ -173,7 +174,6 @@ pub mod preset_renderers {
     }
 }
 
-
 pub trait RenderFunctions {
     fn render_init<'a, 'b>(
         &self,
@@ -181,7 +181,8 @@ pub trait RenderFunctions {
         renderer: &'a Renderer,
         instance_manager: &'a InstanceManager,
         bind_groups: &'a BindGroups,
-    ) where 'a: 'b;
+    ) where
+        'a: 'b;
 
     fn render<'a, 'b>(
         &self,
@@ -190,7 +191,8 @@ pub trait RenderFunctions {
         renderer: &'a Renderer,
         instance_manager: &'a InstanceManager,
         bind_groups: &'a BindGroups,
-    ) where 'a: 'b;
+    ) where
+        'a: 'b;
 }
 
 pub struct StandardRender3d {}
@@ -201,7 +203,9 @@ impl RenderFunctions for StandardRender3d {
         _renderer: &'a Renderer,
         instance_manager: &'a InstanceManager,
         bind_groups: &'a BindGroups,
-    ) where 'a: 'b {
+    ) where
+        'a: 'b,
+    {
         render_pass.set_vertex_buffer(1, instance_manager.instance_3d_buffer.slice(..));
         render_pass.set_bind_group(1, &bind_groups.camera, &[]);
         render_pass.set_bind_group(2, &bind_groups.light, &[]);
@@ -214,14 +218,17 @@ impl RenderFunctions for StandardRender3d {
         _renderer: &'a Renderer,
         instance_manager: &'a InstanceManager,
         _bind_groups: &'a BindGroups,
-    ) where 'a: 'b {
+    ) where
+        'a: 'b,
+    {
         let (model_name, _, instances) = command.unpack();
         if let Some(model) = instance_manager.models.get(&model_name) {
             for mesh in &model.meshes {
                 let material = &model.materials[mesh.material];
                 render_pass.set_bind_group(0, &material.bind_group, &[]);
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass
+                    .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mesh.num_elements, 0, instances.clone());
             }
         } else {
@@ -231,9 +238,9 @@ impl RenderFunctions for StandardRender3d {
 }
 
 pub struct RenderCommand {
-    model: String,
-    transform: Option<Matrix4<f32>>, //todo: figure out why this there is a matrix in RenderCommand
-    instances: Option<Range<u32>>,
+    pub model: String,
+    pub transform: Option<Matrix4<f32>>, //todo: figure out why this there is a matrix in RenderCommand
+    pub instances: Option<Range<u32>>,
 }
 impl RenderCommand {
     pub fn unpack(self) -> (String, Option<Matrix4<f32>>, Range<u32>) {
@@ -245,7 +252,7 @@ impl RenderCommand {
 }
 
 pub trait RenderComponent {
-    fn init(&mut self, context: &GlobalContext, instance: &SharedCell<Instance3D>, components: &Vec<Component>);
+    fn init(&mut self, context: &GlobalContext, components: &Vec<Component>);
 
     fn render(&self, entity: &Entity, commands: &mut Vec<RenderCommand>);
 
@@ -255,25 +262,26 @@ pub trait RenderComponent {
 }
 
 pub struct Single3DInstance {
-    pub instance_id: u32,
+    pub model_name: String,
+    pub instance_ref: InstanceRef,
 }
 impl Single3DInstance {
-    pub fn new() -> Box<Self> {
-        Box::new(Self { instance_id: 0, })
+    pub fn new(model_name: &str, instance_ref: InstanceRef) -> Box<Self> {
+        Box::new(Self {
+            instance_ref,
+            model_name: model_name.to_string(),
+        })
     }
 }
 impl RenderComponent for Single3DInstance {
-    fn init(&mut self, context: &GlobalContext, instance: &SharedCell<Instance3D>, _components: &Vec<Component>) {
-        let instance_id = context.register_instance_3d(instance.clone());
-        self.instance_id = instance_id as u32;
-    }
+    fn init(&mut self, _context: &GlobalContext, _components: &Vec<Component>) {}
 
-    fn render(&self, entity: &Entity, commands: &mut Vec<RenderCommand>) {
-
+    fn render(&self, _entity: &Entity, commands: &mut Vec<RenderCommand>) {
+        let i = self.instance_ref.get_instance_id();
         commands.push(RenderCommand {
-            model: entity.instance.borrow().model_name.clone(),
+            model: self.model_name.clone(),
             transform: None,
-            instances: Some(self.instance_id..(self.instance_id+1)),
+            instances: Some(i..(i + 1)),
         })
     }
 
@@ -293,11 +301,15 @@ impl NoRender {
     }
 }
 impl RenderComponent for NoRender {
-    fn init(&mut self, _context: &GlobalContext, _instance: &SharedCell<Instance3D>, _components: &Vec<Component>) {}
+    fn init(&mut self, _context: &GlobalContext, _components: &Vec<Component>) {}
 
     fn render(&self, _entity: &Entity, _commands: &mut Vec<RenderCommand>) {}
 
-    fn transform_child(&self, child_command: RenderCommand) -> RenderCommand { child_command }
+    fn transform_child(&self, child_command: RenderCommand) -> RenderCommand {
+        child_command
+    }
 
-    fn get_name(&self) -> String { "No Render".to_string() }
+    fn get_name(&self) -> String {
+        "No Render".to_string()
+    }
 }

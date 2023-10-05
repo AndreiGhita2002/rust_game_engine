@@ -60,15 +60,21 @@ pub async fn load_binary(file_name: &str) -> anyhow::Result<Vec<u8>> {
     Ok(data)
 }
 
-pub async fn load_texture(file_name: &str, device: &Device, queue: &Queue)
-    -> anyhow::Result<texture::Texture> {
+pub async fn load_texture(
+    file_name: &str,
+    device: &Device,
+    queue: &Queue,
+) -> anyhow::Result<texture::Texture> {
     let data = load_binary(file_name).await?;
     texture::Texture::from_bytes(device, queue, &data, file_name)
 }
 
-pub async fn load_model(model_name: &str, device: &Device, queue: &Queue, layout: &BindGroupLayout)
-    -> anyhow::Result<model::Model> {
-
+pub async fn load_model(
+    model_name: &str,
+    device: &Device,
+    queue: &Queue,
+    layout: &BindGroupLayout,
+) -> anyhow::Result<model::Model> {
     let obj_url = format!("{MODEL_DIR}{model_name}.obj");
     let obj_text = load_string(&obj_url).await?;
     let obj_cursor = Cursor::new(obj_text);
@@ -87,7 +93,7 @@ pub async fn load_model(model_name: &str, device: &Device, queue: &Queue, layout
             tobj::load_mtl_buf(&mut BufReader::new(Cursor::new(mat_text)))
         },
     )
-        .await?;
+    .await?;
 
     let mut materials = Vec::new();
     for m in obj_materials? {
@@ -115,7 +121,8 @@ pub async fn load_model(model_name: &str, device: &Device, queue: &Queue, layout
         })
     }
 
-    let meshes = models.into_iter()
+    let meshes = models
+        .into_iter()
         .map(|m| {
             let vertices = (0..m.mesh.positions.len() / 3)
                 .map(|i| ModelVertex {
@@ -124,10 +131,7 @@ pub async fn load_model(model_name: &str, device: &Device, queue: &Queue, layout
                         m.mesh.positions[i * 3 + 1],
                         m.mesh.positions[i * 3 + 2],
                     ],
-                    tex_coords: [
-                        m.mesh.texcoords[i * 2],
-                        m.mesh.texcoords[i * 2 + 1]
-                    ],
+                    tex_coords: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]],
                     normal: [
                         m.mesh.normals[i * 3],
                         m.mesh.normals[i * 3 + 1],
@@ -162,10 +166,12 @@ pub async fn load_model(model_name: &str, device: &Device, queue: &Queue, layout
 
 #[allow(dead_code)]
 pub async fn load_sprite(
-    file_name: &str, vertices: Vec<SpriteVertex>,
-    device: &Device, queue: &Queue, layout: &BindGroupLayout
+    file_name: &str,
+    vertices: Vec<SpriteVertex>,
+    device: &Device,
+    queue: &Queue,
+    layout: &BindGroupLayout,
 ) -> anyhow::Result<model::Model> {
-
     let diffuse_texture = load_texture(file_name, device, queue).await?;
     // todo: use the size of the texture:
     // let ratio = diffuse_texture.texture.height() as f32 / diffuse_texture.texture.width() as f32;
@@ -184,18 +190,13 @@ pub async fn load_sprite(
         label: None,
     });
 
-    let indices: Vec<u32> = vec![
-        0, 1,
-        1, 2,
-        2, 3,
-        3, 0
-    ];
+    let indices: Vec<u32> = vec![0, 1, 1, 2, 2, 3, 3, 0];
 
     Ok(model::Model {
-        meshes: vec![
-            Mesh::from_vertices(vertices, indices, file_name, None, device)
-        ],
-        materials:  vec![Material {
+        meshes: vec![Mesh::from_vertices(
+            vertices, indices, file_name, None, device,
+        )],
+        materials: vec![Material {
             name: file_name.to_string(),
             diffuse_texture,
             bind_group,

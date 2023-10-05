@@ -1,5 +1,3 @@
-use cgmath::Vector3;
-
 use crate::camera::{Camera, CameraController};
 use crate::entity::Entity;
 use crate::event::{GameEvent, Response};
@@ -61,10 +59,14 @@ impl PlayerControllerSystem {
     pub fn new(
         camera: Camera,
         controller: Box<dyn CameraController>,
-        player_entity: SharedCell<Entity>
+        player_entity: SharedCell<Entity>,
     ) -> GameSystem {
         GameSystem {
-            object: Box::new(Self { camera, controller, player_entity })
+            object: Box::new(Self {
+                camera,
+                controller,
+                player_entity,
+            }),
         }
     }
 }
@@ -83,12 +85,8 @@ impl SystemObject for PlayerControllerSystem {
 
         // changing the player instance:
         let point = self.camera.get_pos();
-        let pos = Vector3 {
-            x: point.x,
-            y: point.y,
-            z: point.z,
-        };
-        self.player_entity.borrow_mut().instance_set(pos);
+        let pos = [point.x, point.y, point.z];
+        self.player_entity.borrow_mut().space_component().set_pos(&pos);
 
         context.update_camera_uniform(&self.camera);
 

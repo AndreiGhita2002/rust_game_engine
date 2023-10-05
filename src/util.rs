@@ -2,6 +2,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
@@ -56,39 +57,52 @@ impl<T: PartialEq> PartialEq for SharedCell<T> {
 // -------------------
 //  not multi thread safe
 //    such a struct would be possible and v useful at some point
-struct QueueBuffer<T: Clone> {
-    inner_ref: SharedCell<QueueBufferRef<T>>,
+pub struct QueueBuffer<T> {
+    inner_ref: QueueBufferRef<T>,
 }
-struct QueueBufferRef<T: Clone> {
-    buffer: Vec<T>,
+pub struct QueueBufferRef<T> {
+    buffer: SharedCell<Vec<T>>,
 }
-impl<T: Clone> QueueBuffer<T> {
+impl<T> QueueBuffer<T> {
     pub fn new() -> Self {
         QueueBuffer {
-            inner_ref: SharedCell::new(QueueBufferRef::new()),
+            inner_ref: QueueBufferRef::new(),
         }
     }
 
-    pub fn get_ref(&self) -> SharedCell<QueueBufferRef<T>> {
+    pub fn get_ref(&self) -> QueueBufferRef<T> {
         self.inner_ref.clone()
     }
 
     pub fn get_buffer(&mut self) -> Vec<T> {
-        let mut inner = self.inner_ref.borrow_mut();
-        let buf = inner.buffer.clone();
-        inner.buffer = Vec::new();
-        buf
+        let mut vec = Vec::new();
+        mem::swap(&mut vec, self.inner_ref.buffer.borrow_mut().deref_mut());
+        vec
     }
 }
-impl<T: Clone> QueueBufferRef<T> {
+impl<T> QueueBufferRef<T> {
     pub fn new() -> Self {
         QueueBufferRef {
-            buffer: Vec::new(),
+            buffer: SharedCell::new(Vec::new()),
+        }
+    }
+
+    pub fn clone(&self) -> Self {
+        QueueBufferRef {
+            buffer: self.buffer.clone(),
         }
     }
 
     pub fn push(&mut self, e: T) {
-        self.buffer.push(e)
+        self.buffer.borrow_mut().push(e)
+    }
+}
+
+impl<T: Clone> Clone for QueueBufferRef<T> {
+    fn clone(&self) -> Self {
+        QueueBufferRef {
+            buffer: self.buffer.clone(),
+        }
     }
 }
 
@@ -103,37 +117,29 @@ pub enum ObjectWrap {
 impl ObjectWrap {
     pub fn get_id(&self) -> u64 {
         match self {
-            ObjectWrap::Entity(entity) => {
-                entity.borrow().get_id()
-            }
-            ObjectWrap::Component(component) => {
-                component.borrow().get_id()
-            }
+            ObjectWrap::Entity(entity) => entity.borrow().get_id(),
+            ObjectWrap::Component(component) => component.borrow().get_id(),
         }
     }
 
     pub fn input(&self, event: GameEvent) -> Response {
         match self {
-            ObjectWrap::Entity(entity) => {
-                entity.borrow_mut().input(event)
-            }
-            ObjectWrap::Component(component) => {
-                component.borrow_mut().input(event)
-            }
+            ObjectWrap::Entity(entity) => entity.borrow_mut().input(event),
+            ObjectWrap::Component(component) => component.borrow_mut().input(event),
         }
     }
 
     pub fn to_entity(self) -> Option<SharedCell<Entity>> {
         match self {
             ObjectWrap::Entity(cell) => Some(cell),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn to_component(self) -> Option<SharedCell<Component>> {
         match self {
             ObjectWrap::Component(cell) => Some(cell),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -147,7 +153,7 @@ impl Clone for ObjectWrap {
     }
 }
 
-pub struct IdManager<> {
+pub struct IdManager {
     map: SharedCell<HashMap<u64, ObjectWrap>>,
     hasher: SharedCell<DefaultHasher>,
 }
@@ -164,7 +170,7 @@ impl IdManager {
         // self.map.borrow().get(&id)
         let map = self.map.borrow();
         if let Some(t) = map.get(&id) {
-            return Some(t.clone())
+            return Some(t.clone());
         }
         None
     }
@@ -173,7 +179,7 @@ impl IdManager {
         // self.map.borrow_mut().get_mut(&id)
         let mut map = self.map.borrow_mut();
         if let Some(t) = map.get_mut(&id) {
-            return Some(t.clone())
+            return Some(t.clone());
         }
         None
     }

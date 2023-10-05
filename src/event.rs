@@ -8,12 +8,23 @@ use crate::util::{IdManager, SharedCell};
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub enum GameEvent {
-    KeyboardInput { input: KeyboardInput },
-    CursorMoved { position: PhysicalPosition<f64> },
-    CommandString {target: String, command: String, args: String},
-    SendValue (ValueType),
-    SendValueWith {string: String, value: ValueType},
-    AttachListener (Listener),  // todo add a 'where' field
+    KeyboardInput {
+        input: KeyboardInput,
+    },
+    CursorMoved {
+        position: PhysicalPosition<f64>,
+    },
+    CommandString {
+        target: String,
+        command: String,
+        args: String,
+    },
+    SendValue(ValueType),
+    SendValueWith {
+        string: String,
+        value: ValueType,
+    },
+    AttachListener(Listener), // todo add a 'where' field
 }
 
 #[allow(dead_code)]
@@ -32,15 +43,15 @@ pub enum ValueType {
 pub enum Response {
     No,
     Weak,
-    Strong
+    Strong,
 }
 impl Response {
     pub fn with(self, other: Response) -> Response {
         if self == Response::Strong || other == Response::Strong {
-            return Response::Strong
+            return Response::Strong;
         }
         if self == Response::Weak || other == Response::Weak {
-            return Response::Weak
+            return Response::Weak;
         }
         Response::No
     }
@@ -139,13 +150,15 @@ impl Clone for EventDispatcher {
 impl GameEvent {
     pub fn from_winit_event(event: &winit::event::WindowEvent) -> Option<GameEvent> {
         match event {
-            winit::event::WindowEvent::KeyboardInput{input, ..} => {
-                Some(GameEvent::KeyboardInput {input: *input})
+            winit::event::WindowEvent::KeyboardInput { input, .. } => {
+                Some(GameEvent::KeyboardInput { input: *input })
             }
-            winit::event::WindowEvent::CursorMoved{position, ..} => {
-                Some(GameEvent::CursorMoved {position: *position})
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                Some(GameEvent::CursorMoved {
+                    position: *position,
+                })
             }
-            _ => None
+            _ => None,
         }
     }
 }
