@@ -10,6 +10,23 @@ use crate::entity::{Component, Entity};
 use crate::event::{GameEvent, Response};
 
 // ---------------
+//   Functions
+// ---------------
+
+// todo finish this pad function and use it in space.rs
+// pub fn pad<T: Copy, const B: usize>(base: &[T], req_len: usize, pad_item: T) -> [T; B] {
+//     let dif = req_len as i32 - base.len() as i32;
+//     if dif <= 0 {
+//         &base[0..req_len]
+//     } else {
+//         let mut out = Vec::from(base);
+//         for _ in dif..(req_len as i32) {
+//             out.push(pad_item);
+//         }
+//     }
+// }
+
+// ---------------
 //   Shared Cell
 // ---------------
 #[derive(Debug)]

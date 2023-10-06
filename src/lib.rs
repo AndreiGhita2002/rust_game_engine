@@ -434,14 +434,11 @@ fn test_init(context: &mut GlobalContext) {
     entity_manager.init(&context);
     entity_manager.print_entities();
 
-    let player = entity_manager.new_entity(
-        EntityDesc {
-            position: Vector3::new(0.0, 0.0, 0.0),
-            components: vec![],
-        },
-        0,
-        &context,
-    );
+    let player = entity_manager.new_entity(&context, EntityDesc {
+        parent_id: Some(0),
+        position: vec![0.0, 0.0, 0.0],
+        ..Default::default()
+    });
 
     let player_controller = PlayerControllerSystem::new(
         Camera::default(),

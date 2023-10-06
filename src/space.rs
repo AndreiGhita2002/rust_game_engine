@@ -1,6 +1,6 @@
-use cgmath::{Matrix4, Vector3, Zero};
+use cgmath::{Matrix4, Quaternion, Vector3, Zero};
 
-use crate::entity::Entity;
+use crate::entity::{Entity, EntityDesc};
 use crate::event::{GameEvent, Response, ValueType};
 use crate::GlobalContext;
 use crate::render::{RenderCommand, Single3DInstance};
@@ -12,6 +12,7 @@ pub trait SpaceComponent {
         &self,
         context: &GlobalContext,
         child_entity: SharedCell<Entity>,
+        entity_desc: &EntityDesc,
         depth: i32,
     );
 
@@ -45,6 +46,7 @@ impl SpaceComponent for NoSpaceMaster {
         &self,
         _context: &GlobalContext,
         _child_entity: SharedCell<Entity>,
+        _entity_desc: &EntityDesc,
         _depth: i32,
     ) {}
 
@@ -63,11 +65,17 @@ impl SpaceComponent for NoSpaceMaster {
     }
 }
 pub struct NoSpaceComponent {}
+impl NoSpaceComponent {
+    pub fn new() -> Box<Self> {
+        Box::new(NoSpaceComponent{})
+    }
+}
 impl SpaceComponent for NoSpaceComponent {
     fn init_child_entity(
         &self,
         _context: &GlobalContext,
         _child_entity: SharedCell<Entity>,
+        _entity_desc: &EntityDesc,
         _depth: i32,
     ) {}
 
@@ -95,13 +103,17 @@ impl SpaceComponent for GameSpaceMaster {
         &self,
         context: &GlobalContext,
         child_entity: SharedCell<Entity>,
+        entity_desc: &EntityDesc,
         _depth: i32,
     ) {
         // creating the instance
         let mut instance_manager = context.instance_manager.borrow_mut();
+        let pos = &entity_desc.position[0..3]; //todo fix this shite code:)
+        let rot = &entity_desc.rotation[0..4];
         let instance = instance_manager.register_instance(InstanceDesc {
             instance_type: InstanceType::Model,
-            ..Default::default()
+            position: Vector3::new(pos[0], pos[1], pos[2]),
+            rotation: Quaternion::new(rot[0], rot[1], rot[2], rot[3]),
         });
         let mut entity = child_entity.borrow_mut();
 
@@ -148,6 +160,7 @@ impl SpaceComponent for GameSpaceComponent {
         &self,
         _context: &GlobalContext,
         _child_entity: SharedCell<Entity>,
+        _entity_desc: &EntityDesc,
         _depth: i32,
     ) {}
 

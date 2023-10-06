@@ -1,6 +1,5 @@
+use std::mem;
 use std::ops::DerefMut;
-
-use cgmath::Vector3;
 
 use crate::event::{GameEvent, Response};
 use crate::GlobalContext;
@@ -16,83 +15,63 @@ pub struct EntityManager {
 impl EntityManager {
     pub fn new(id_manager: IdManager) -> Self {
         let root = Entity::make_root(id_manager.clone());
-        let game_space_master = Entity::make_space_master(id_manager.clone());
-        {
-            root.borrow_mut().add_child(game_space_master.clone());
-        }
         EntityManager {
             id_manager,
-            entities: vec![root, game_space_master],
+            entities: vec![root],
         }
     }
 
     pub fn init(&mut self, context: &GlobalContext) {
-        let space_master_id = self.entities.get(1).unwrap().get_id();
+        // space master
+        let space_master = self.new_entity(&context, EntityDesc {
+            parent_id: Some(0),
+            space_component: Some(Box::new(GameSpaceMaster::default())),
+            render_component: Some(NoRender::new()),
+            ..Default::default()
+        });
         // first cube
-        self.new_entity(
-            EntityDesc {
-                position: Vector3 {
-                    x: 1.0,
-                    y: 0.0,
-                    z: 0.0,
-                },
-                ..Default::default()
-            },
-            space_master_id,
-            &context,
-        );
+        self.new_entity(&context, EntityDesc {
+            parent_id: Some(space_master.get_id()),
+            position: vec![1.0, 0.0, 0.0],
+            ..Default::default()
+        });
         // second cube
-        self.new_entity(
-            EntityDesc {
-                position: Vector3 {
-                    x: -1.0,
-                    y: -2.0,
-                    z: 0.0,
-                },
-                ..Default::default()
-            },
-            space_master_id,
-            &context,
-        );
+        self.new_entity(&context, EntityDesc {
+            parent_id: Some(space_master.get_id()),
+            position: vec![-1.0, -2.0, 0.0],
+            ..Default::default()
+        });
         // third cube:
-        self.new_entity(
-            EntityDesc {
-                position: Vector3 {
-                    x: 1.0,
-                    y: 2.0,
-                    z: 0.0,
-                },
-                ..Default::default()
-            },
-            space_master_id,
-            &context,
-        );
+        self.new_entity(&context, EntityDesc {
+            parent_id: Some(space_master.get_id()),
+            position: vec![1.0, 2.0, 0.0],
+            ..Default::default()
+        });
     }
 
-    pub fn new_entity<T>(
+    pub fn new_entity(
         &mut self,
-        entity_desc: EntityDesc,
-        parent: T,
         context: &GlobalContext,
+        mut entity_desc: EntityDesc,
     ) -> SharedCell<Entity>
-    where
-        T: EntityRef,
     {
         // creating the new entity
-        let p_id = parent.get_id();
-        let (position, components) = entity_desc.unpack();
+        let parent_entity = match entity_desc.parent_id {
+            Some(r) => r.into_entity(&self.id_manager),
+            None => 0u64.into_entity(&self.id_manager),
+        };
+        let p_id = parent_entity.get_id();
         let entity = SharedCell::new(Entity {
             id: self.id_manager.next_id(),
             parent_id: p_id,
             children: vec![],
-            render_component: NoRender::new(),
-            space_component: Box::new(NoSpaceComponent{}),
-            components,
+            render_component: entity_desc.get_render_component().unwrap_or(NoRender::new()),
+            space_component: entity_desc.get_space_component().unwrap_or(NoSpaceComponent::new()),
+            components: entity_desc.get_components(),
         });
         // registering the new entity:
         self.id_manager.register_entity(entity.clone());
         self.entities.push(entity.clone());
-        let parent_entity = parent.into_entity(&self.id_manager);
         parent_entity.borrow_mut().add_child(entity.clone());
 
         // going through all of the entities parents and letting them init the new entity:
@@ -101,7 +80,7 @@ impl EntityManager {
         while parent_id != 0 {
             let current_parent = self.id_manager.get(parent_id).unwrap().to_entity().unwrap();
             let current_parent_b = current_parent.borrow();
-            current_parent_b.init_child(context, entity.clone(), depth);
+            current_parent_b.init_child(context, entity.clone(), &entity_desc, depth);
             depth += 1;
             parent_id = current_parent_b.parent_id;
         }
@@ -111,8 +90,7 @@ impl EntityManager {
             entity_b.init(context);
             // todo this should be in space master init
             //  maybe it should take the EntityDesc as an argument and figure out the position from there
-            let pos = [position.x, position.y, position.z];
-            entity_b.space_component.translate(&pos)
+            entity_b.space_component.translate(&entity_desc.position)
         }
         entity
     }
@@ -152,10 +130,10 @@ impl EntityManager {
 
     pub fn print_entities(&self) {
         println!("ENTITIES:");
-        for entity_cell in self.entities.iter() {
+        for (i, entity_cell) in self.entities.iter().enumerate() {
             let entity = entity_cell.borrow();
             let id = entity.get_id();
-            println!("[0:{}]", id)
+            println!("[{i}:{id}]")
         }
     }
 }
@@ -179,13 +157,19 @@ impl Entity {
         }
     }
 
-    pub fn init_child(&self, context: &GlobalContext, child: SharedCell<Entity>, depth: i32) {
+    pub fn init_child(
+        &self,
+        context: &GlobalContext,
+        child: SharedCell<Entity>,
+        entity_desc: &EntityDesc,
+        depth: i32
+    ) {
         println!("Entity:{} is initialising child Entity:{}", self.get_id(), child.get_id());
         // first the space component:
-        self.space_component.init_child_entity(context, child.clone(), depth);
+        self.space_component.init_child_entity(context, child.clone(), entity_desc, depth);
         // all the components get the chance to edit the new child:
         for component in self.components.iter() {
-            component.init_child_entity(context, child.clone(), depth)
+            component.init_child_entity(context, child.clone(), entity_desc, depth)
         }
     }
 
@@ -199,21 +183,6 @@ impl Entity {
             children: vec![],
         };
         let cell = SharedCell::new(root);
-        id_manager.register_entity(cell.clone());
-        cell
-    }
-
-    // todo remove and generalize this with EntityDesc (somehow)
-    pub fn make_space_master(id_manager: IdManager) -> SharedCell<Self> {
-        let master = Entity {
-            id: id_manager.next_id(),
-            parent_id: 0,
-            render_component: NoRender::new(),
-            space_component: Box::new(GameSpaceMaster::default()),
-            components: vec![],
-            children: vec![],
-        };
-        let cell = SharedCell::new(master);
         id_manager.register_entity(cell.clone());
         cell
     }
@@ -264,19 +233,42 @@ impl Entity {
 }
 
 pub struct EntityDesc {
-    pub position: Vector3<f32>, //todo replace with space location
+    pub parent_id: Option<u64>,
+    pub position: Vec<f32>,
+    pub rotation: Vec<f32>,
     pub components: Vec<Component>,
+    pub space_component: Option<Box<dyn SpaceComponent>>,
+    pub render_component: Option<Box<dyn RenderComponent>>,
 }
 impl EntityDesc {
-    pub fn unpack(self) -> (Vector3<f32>, Vec<Component>) {
-        (self.position, self.components)
+    fn get_space_component(&mut self) -> Option<Box<dyn SpaceComponent>> {
+        let mut comp = None;
+        mem::swap(&mut self.space_component, &mut comp);
+        comp
+    }
+
+    fn get_render_component(&mut self) -> Option<Box<dyn RenderComponent>> {
+        let mut comp = None;
+        mem::swap(&mut self.render_component, &mut comp);
+        comp
+    }
+
+    fn get_components(&mut self) -> Vec<Component> {
+        //todo better to do a clone, surely?
+        let mut comps = vec![];
+        mem::swap(&mut self.components, &mut comps);
+        comps
     }
 }
 impl Default for EntityDesc {
     fn default() -> Self {
         EntityDesc {
-            position: Vector3::new(0.0, 0.0, 0.0),
+            parent_id: None,
+            position: vec![0.0, 0.0, 0.0],
+            rotation: vec![1.0, 0.0, 0.0, 0.0],
             components: vec![],
+            space_component: None,
+            render_component: None,
         }
     }
 }
@@ -336,10 +328,11 @@ impl Component {
         &self,
         context: &GlobalContext,
         child_entity: SharedCell<Entity>,
+        entity_desc: &EntityDesc,
         depth: i32,
     ) {
         self.component_obj
-            .init_child_entity(context, child_entity, depth)
+            .init_child_entity(context, child_entity, entity_desc, depth)
     }
 
     pub fn input(&mut self, event: GameEvent) -> Response {
@@ -358,6 +351,7 @@ trait ComponentObject {
         &self,
         context: &GlobalContext,
         child_entity: SharedCell<Entity>,
+        entity_desc: &EntityDesc,
         depth: i32,
     );
 
