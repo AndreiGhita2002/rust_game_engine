@@ -72,8 +72,15 @@ impl PlayerControllerSystem {
 }
 impl SystemObject for PlayerControllerSystem {
     fn input(&mut self, event: GameEvent) -> Response {
-        let used = self.controller.input(event.clone());
-        if used {
+        if match event {
+            GameEvent::ScreenResize { new_size } => {
+                self.camera.aspect = new_size.width as f32 / new_size.height as f32;
+                true
+            }
+            _ => {
+                self.controller.input(event.clone())
+            }
+        } {
             Response::Strong
         } else {
             Response::No

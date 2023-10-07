@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::fmt;
 use std::fmt::Formatter;
 
@@ -17,13 +18,13 @@ pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
 );
 
 pub struct Camera {
-    eye: Point3<f32>,
-    target: Point3<f32>,
-    up: Vector3<f32>,
-    aspect: f32,
-    fovy: f32,
-    znear: f32,
-    zfar: f32,
+    pub eye: Point3<f32>,
+    pub target: Point3<f32>,
+    pub up: Vector3<f32>,
+    pub aspect: f32,
+    pub fovy: f32,
+    pub znear: f32,
+    pub zfar: f32,
 }
 
 impl Camera {
@@ -138,7 +139,7 @@ pub struct FreeCamController {
     is_backward_pressed: bool,
     is_right_pressed: bool,
     is_left_pressed: bool,
-    current_cursor: (f64, f64),
+    cursor_delta: Cell<(f64, f64)>,
     look_speed_factor: f64,
     is_up_pressed: bool,
     is_down_pressed: bool,
@@ -152,7 +153,7 @@ impl Default for FreeCamController {
             is_backward_pressed: false,
             is_right_pressed: false,
             is_left_pressed: false,
-            current_cursor: (0.0, 0.0),
+            cursor_delta: Cell::new((0.0, 0.0)),
             look_speed_factor: 1.0,
             is_up_pressed: false,
             is_down_pressed: false,
@@ -163,8 +164,8 @@ impl Default for FreeCamController {
 impl CameraController for FreeCamController {
     fn input(&mut self, event: GameEvent) -> bool {
         match event {
-            GameEvent::CursorMoved { position, .. } => {
-                self.current_cursor = (position.x, position.y);
+            GameEvent::CursorMoved { delta, .. } => {
+                self.cursor_delta.set(delta);
                 false
             }
             GameEvent::KeyboardInput {
@@ -244,17 +245,11 @@ impl CameraController for FreeCamController {
             camera.eye -= up_vec;
             camera.target -= up_vec;
         }
-        let center = (
-            screen_size.width as f64 / 2.0,
-            screen_size.height as f64 / 2.0,
-        );
-        let cursor_diff = (
-            -center.0 + self.current_cursor.0,
-            center.1 - self.current_cursor.1,
-        );
-        // self.screen_centre.set(self.current_cursor);
+        // mouse look:
+        let delta = self.cursor_delta.get();
+        self.cursor_delta.set((0.0, 0.0));
         let right = forward_norm.cross(camera.up);
-        let mut v = (cursor_diff.0 as f32 * right) + (cursor_diff.1 as f32 * camera.up);
+        let mut v = (delta.0 as f32 * right) + (delta.1 as f32 * camera.up);
         v *= self.look_speed_factor as f32;
         camera.target += v;
 

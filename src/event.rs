@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use winit::dpi::PhysicalPosition;
 use winit::event::KeyboardInput;
 
 use crate::util::{IdManager, SharedCell};
@@ -12,7 +11,10 @@ pub enum GameEvent {
         input: KeyboardInput,
     },
     CursorMoved {
-        position: PhysicalPosition<f64>,
+        delta: (f64, f64),
+    },
+    ScreenResize{
+        new_size: winit::dpi::PhysicalSize<u32>,
     },
     CommandString {
         target: String,
@@ -148,14 +150,20 @@ impl Clone for EventDispatcher {
 }
 
 impl GameEvent {
-    pub fn from_winit_event(event: &winit::event::WindowEvent) -> Option<GameEvent> {
-        match event {
+    pub fn from_window_event(window_event: &winit::event::WindowEvent) -> Option<GameEvent> {
+        match window_event {
             winit::event::WindowEvent::KeyboardInput { input, .. } => {
                 Some(GameEvent::KeyboardInput { input: *input })
             }
-            winit::event::WindowEvent::CursorMoved { position, .. } => {
+            _ => None,
+        }
+    }
+
+    pub fn from_device_event(device_event: &winit::event::DeviceEvent) -> Option<GameEvent> {
+        match device_event {
+            winit::event::DeviceEvent::MouseMotion {delta} => {
                 Some(GameEvent::CursorMoved {
-                    position: *position,
+                    delta: *delta
                 })
             }
             _ => None,

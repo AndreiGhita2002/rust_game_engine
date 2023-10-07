@@ -274,9 +274,20 @@ impl GlobalContext {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+            // camera aspect:
         }
         self.depth_texture =
             Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+        
+        // todo dispatch dynamic event for Screen Resize
+        // self.event_dispatcher.send_event(
+        //     "window_resize",
+        //     GameEvent::ScreenResize {
+        //         new_size
+        //     }
+        // )
+        // right now it only get dispatched to all:
+        self.input(GameEvent::ScreenResize { new_size })
     }
 
     pub fn input(&mut self, event: GameEvent) {
@@ -314,7 +325,7 @@ impl GlobalContext {
         self.instance_manager.borrow_mut().tick(&self);
 
         // move the cursor to the center of the screen:
-        self.set_cursor_to_center();
+        // self.set_cursor_to_center();
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -536,10 +547,15 @@ pub async fn run() {
                             .set_fullscreen(Some(Fullscreen::Borderless(None)));
                     }
                     _ => {
-                        if let Some(event) = GameEvent::from_winit_event(event) {
+                        if let Some(event) = GameEvent::from_window_event(event) {
                             context.input(event)
                         }
                     }
+                }
+            }
+            Event::DeviceEvent { ref event, .. } => {
+                if let Some(event) = GameEvent::from_device_event(event) {
+                    context.input(event)
                 }
             }
             Event::RedrawRequested(window_id) if window_id == context.window().id() => {
