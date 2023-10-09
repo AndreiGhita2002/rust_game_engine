@@ -210,7 +210,7 @@ impl CameraController for FreeCamController {
         }
     }
 
-    fn update_camera(&self, camera: &mut Camera, screen_size: PhysicalSize<u32>) {
+    fn update_camera(&self, camera: &mut Camera, _screen_size: PhysicalSize<u32>) {
         let forward = camera.target - camera.eye;
         let forward_norm = forward.normalize();
         let forward_mag = forward.magnitude();
