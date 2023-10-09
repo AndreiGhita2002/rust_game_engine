@@ -6,25 +6,26 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
-use crate::entity::{Component, Entity};
-use crate::event::{GameEvent, Response};
+use crate::entity::component::Component;
+use crate::entity::Entity;
+use crate::entity::event::{GameEvent, Response};
 
 // ---------------
 //   Functions
 // ---------------
 
-// todo finish this pad function and use it in space.rs
-// pub fn pad<T: Copy, const B: usize>(base: &[T], req_len: usize, pad_item: T) -> [T; B] {
-//     let dif = req_len as i32 - base.len() as i32;
-//     if dif <= 0 {
-//         &base[0..req_len]
-//     } else {
-//         let mut out = Vec::from(base);
-//         for _ in dif..(req_len as i32) {
-//             out.push(pad_item);
-//         }
-//     }
-// }
+pub fn pad<T: Copy>(base: &Vec<T>, req_len: usize, pad_item: T) -> Vec<T> {
+    let dif = req_len as i32 - base.len() as i32;
+    let mut out = Vec::new();
+    if dif <= 0 {
+        out.clone_from_slice(&base[0..req_len]);
+    } else {
+        for _ in 0..dif {
+            out.push(pad_item);
+        }
+    }
+    out
+}
 
 // ---------------
 //   Shared Cell

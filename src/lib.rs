@@ -13,19 +13,16 @@ use render::texture::Texture;
 
 use crate::camera::{Camera, CameraUniform, FreeCamController};
 use crate::entity::{EntityDesc, EntityManager};
-use crate::event::{EventDispatcher, GameEvent};
+use crate::entity::event::{EventDispatcher, GameEvent};
+use crate::entity::system::{PlayerControllerSystem, SystemManager};
 use crate::render::{LightUniform, Renderer};
 use crate::render::instance::InstanceManager;
-use crate::system::{PlayerControllerSystem, SystemManager};
 use crate::util::{IdManager, SharedCell};
 
 mod camera;
 mod entity;
-mod event;
 mod render;
 mod resources;
-mod space;
-mod system;
 mod util;
 
 pub struct BindGroups {

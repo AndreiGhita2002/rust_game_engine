@@ -6,7 +6,7 @@ use cgmath::{InnerSpace, Matrix4, Point3, SquareMatrix, Vector3};
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode};
 
-use crate::event::GameEvent;
+use crate::entity::event::GameEvent;
 
 #[rustfmt::skip]
 #[allow(dead_code)]

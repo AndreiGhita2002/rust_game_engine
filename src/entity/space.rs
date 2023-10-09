@@ -1,8 +1,8 @@
 use cgmath::{Matrix4, Quaternion, Vector3, Zero};
 
+use crate::{GlobalContext, util};
 use crate::entity::{Entity, EntityDesc};
-use crate::event::{GameEvent, Response, ValueType};
-use crate::GlobalContext;
+use crate::entity::event::{GameEvent, Response, ValueType};
 use crate::render::{RenderCommand, Single3DInstance};
 use crate::render::instance::{InstanceDesc, InstanceRef, InstanceType};
 use crate::util::SharedCell;
@@ -108,8 +108,8 @@ impl SpaceComponent for GameSpaceMaster {
     ) {
         // creating the instance
         let mut instance_manager = context.instance_manager.borrow_mut();
-        let pos = &entity_desc.position[0..3]; //todo fix this shite code:)
-        let rot = &entity_desc.rotation[0..4];
+        let pos = util::pad(&entity_desc.position, 3, 0.0);
+        let rot = util::pad(&entity_desc.rotation, 4, 0.0);
         let instance = instance_manager.register_instance(InstanceDesc {
             instance_type: InstanceType::Model,
             position: Vector3::new(pos[0], pos[1], pos[2]),

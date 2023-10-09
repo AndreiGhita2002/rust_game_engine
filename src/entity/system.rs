@@ -1,6 +1,6 @@
 use crate::camera::{Camera, CameraController};
 use crate::entity::Entity;
-use crate::event::{GameEvent, Response};
+use crate::entity::event::{GameEvent, Response};
 use crate::GlobalContext;
 use crate::util::SharedCell;
 

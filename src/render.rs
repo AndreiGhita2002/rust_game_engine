@@ -4,7 +4,8 @@ use cgmath::Matrix4;
 use wgpu::RenderPass;
 
 use crate::{BindGroups, GlobalContext};
-use crate::entity::{Component, Entity};
+use crate::entity::component::Component;
+use crate::entity::Entity;
 use crate::render::instance::{InstanceManager, InstanceRef};
 
 pub mod instance;

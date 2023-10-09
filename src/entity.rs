@@ -1,11 +1,18 @@
 use std::mem;
 use std::ops::DerefMut;
 
-use crate::event::{GameEvent, Response};
+use event::{GameEvent, Response};
+use space::{GameSpaceMaster, NoSpaceComponent, NoSpaceMaster, SpaceComponent};
+
+use crate::entity::component::Component;
 use crate::GlobalContext;
 use crate::render::{NoRender, RenderCommand, RenderComponent};
-use crate::space::{GameSpaceMaster, NoSpaceComponent, NoSpaceMaster, SpaceComponent};
 use crate::util::{IdManager, SharedCell};
+
+pub mod system;
+pub mod space;
+pub mod component;
+pub mod event;
 
 pub struct EntityManager {
     id_manager: IdManager,
@@ -308,54 +315,4 @@ impl EntityRef for u64 {
     fn get_id(&self) -> u64 {
         *self
     }
-}
-
-// todo implement some of these:
-pub struct Component {
-    id: u64,
-    component_obj: Box<dyn ComponentObject>,
-}
-impl Component {
-    pub fn get_id(&self) -> u64 {
-        self.id
-    }
-
-    fn init(&mut self, context: &GlobalContext) {
-        self.component_obj.init(context)
-    }
-
-    fn init_child_entity(
-        &self,
-        context: &GlobalContext,
-        child_entity: SharedCell<Entity>,
-        entity_desc: &EntityDesc,
-        depth: i32,
-    ) {
-        self.component_obj
-            .init_child_entity(context, child_entity, entity_desc, depth)
-    }
-
-    pub fn input(&mut self, event: GameEvent) -> Response {
-        self.component_obj.input(event)
-    }
-
-    pub fn tick(&mut self) {
-        self.component_obj.tick()
-    }
-}
-
-trait ComponentObject {
-    fn init(&mut self, context: &GlobalContext);
-
-    fn init_child_entity(
-        &self,
-        context: &GlobalContext,
-        child_entity: SharedCell<Entity>,
-        entity_desc: &EntityDesc,
-        depth: i32,
-    );
-
-    fn input(&mut self, event: GameEvent) -> Response;
-
-    fn tick(&mut self);
 }
