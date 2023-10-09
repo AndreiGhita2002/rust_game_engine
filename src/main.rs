@@ -1,4 +1,4 @@
-use rust_transport::run;
+use rust_game_engine::run;
 
 fn main() {
     // Don't use block_on inside of an async function
