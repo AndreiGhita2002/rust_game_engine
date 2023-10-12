@@ -9,16 +9,17 @@ use std::rc::Rc;
 use crate::entity::component::Component;
 use crate::entity::Entity;
 use crate::entity::event::{GameEvent, Response};
+use crate::entity::system::GameSystem;
 
 // ---------------
 //   Functions
 // ---------------
-
 pub fn pad<T: Copy>(base: &Vec<T>, req_len: usize, pad_item: T) -> Vec<T> {
     let dif = req_len as i32 - base.len() as i32;
     let mut out = Vec::new();
     if dif <= 0 {
-        out.clone_from_slice(&base[0..req_len]);
+        out.append(&mut base.clone());
+        // out.clone_from_slice(&base[0..req_len]);
     } else {
         for _ in 0..dif {
             out.push(pad_item);
@@ -130,6 +131,7 @@ impl<T: Clone> Clone for QueueBufferRef<T> {
 pub enum ObjectWrap {
     Entity(SharedCell<Entity>),
     Component(SharedCell<Component>),
+    System(SharedCell<GameSystem>),
 }
 
 impl ObjectWrap {
@@ -137,6 +139,7 @@ impl ObjectWrap {
         match self {
             ObjectWrap::Entity(entity) => entity.borrow().get_id(),
             ObjectWrap::Component(component) => component.borrow().get_id(),
+            ObjectWrap::System(system) => system.borrow().get_id(),
         }
     }
 
@@ -144,6 +147,7 @@ impl ObjectWrap {
         match self {
             ObjectWrap::Entity(entity) => entity.borrow_mut().input(event),
             ObjectWrap::Component(component) => component.borrow_mut().input(event),
+            ObjectWrap::System(system) => system.borrow_mut().input(event),
         }
     }
 
@@ -160,6 +164,13 @@ impl ObjectWrap {
             _ => None,
         }
     }
+
+    pub fn to_system(self) -> Option<SharedCell<GameSystem>> {
+        match self {
+            ObjectWrap::System(cell) => Some(cell),
+            _ => None,
+        }
+    }
 }
 
 impl Clone for ObjectWrap {
@@ -167,6 +178,7 @@ impl Clone for ObjectWrap {
         match self {
             ObjectWrap::Entity(cell) => ObjectWrap::Entity(cell.clone()),
             ObjectWrap::Component(cell) => ObjectWrap::Component(cell.clone()),
+            ObjectWrap::System(cell) => ObjectWrap::System(cell.clone()),
         }
     }
 }
@@ -219,6 +231,12 @@ impl IdManager {
         let mut map = self.map.borrow_mut();
         let id = component.borrow().get_id();
         map.insert(id, ObjectWrap::Component(component));
+    }
+
+    pub fn register_system(&self, system: SharedCell<GameSystem>) {
+        let mut map = self.map.borrow_mut();
+        let id = system.borrow().get_id();
+        map.insert(id, ObjectWrap::System(system));
     }
 }
 

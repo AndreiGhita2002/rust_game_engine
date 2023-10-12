@@ -233,7 +233,7 @@ impl GlobalContext {
         let event_dispatcher = EventDispatcher::new(id_manager.clone());
         let instance_manager = SharedCell::new(InstanceManager::new(&device, id_manager.clone()));
         let entity_manager = SharedCell::new(EntityManager::new(id_manager.clone()));
-        let system_manager = SharedCell::new(SystemManager::new());
+        let system_manager = SharedCell::new(SystemManager::new(id_manager.clone()));
 
         // renderers:
         let renderer_3d =
@@ -449,6 +449,7 @@ fn test_init(context: &mut GlobalContext) {
     });
 
     let player_controller = PlayerControllerSystem::new(
+        &context.id_manager,
         Camera::default(),
         Box::new(FreeCamController::default()),
         player,
@@ -456,7 +457,7 @@ fn test_init(context: &mut GlobalContext) {
     context
         .system_manager
         .borrow_mut()
-        .add_system(player_controller);
+        .new_system(player_controller);
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]

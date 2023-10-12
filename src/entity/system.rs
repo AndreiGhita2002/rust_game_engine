@@ -2,45 +2,57 @@ use crate::camera::{Camera, CameraController};
 use crate::entity::Entity;
 use crate::entity::event::{GameEvent, Response};
 use crate::GlobalContext;
-use crate::util::SharedCell;
+use crate::util::{IdManager, SharedCell};
 
 pub struct SystemManager {
-    systems: Vec<GameSystem>,
+    id_manager: IdManager,
+    systems: Vec<SharedCell<GameSystem>>,
 }
 impl SystemManager {
-    pub fn new() -> Self {
-        Self { systems: vec![] }
-    }
-
-    pub fn add_system<T: Into<GameSystem>>(&mut self, system: T) {
-        self.systems.push(system.into());
+    pub fn new(id_manager: IdManager) -> Self {
+        Self { id_manager, systems: vec![] }
     }
 
     pub fn input(&mut self, event: GameEvent) -> Response {
         let mut output = Response::No;
         for system in self.systems.iter_mut() {
-            output = output.with(system.input(event.clone()));
+            output = output.with(system.borrow_mut().input(event.clone()));
         }
         output
     }
 
     pub fn tick(&mut self, context: &GlobalContext) {
         for system in self.systems.iter_mut() {
-            system.tick(context);
+            system.borrow_mut().tick(context);
         }
+    }
+
+    pub fn new_system(&mut self, sys_obj: Box<dyn SystemObject>) {
+        let id = sys_obj.get_id();
+        let new_system = SharedCell::new(GameSystem {
+            // id,
+            object: sys_obj,
+        });
+        self.id_manager.register_system(new_system.clone());
+        self.systems.push(new_system);
     }
 }
 
 pub struct GameSystem {
+    // id: u64,
     object: Box<dyn SystemObject>,
 }
 impl GameSystem {
-    fn input(&mut self, event: GameEvent) -> Response {
+    pub fn input(&mut self, event: GameEvent) -> Response {
         self.object.input(event)
     }
 
-    fn tick(&mut self, context: &GlobalContext) {
+    pub fn tick(&mut self, context: &GlobalContext) {
         self.object.tick(context);
+    }
+
+    pub fn get_id(&self) -> u64 {
+        self.object.get_id()
     }
 }
 
@@ -48,26 +60,29 @@ pub trait SystemObject {
     fn input(&mut self, event: GameEvent) -> Response;
 
     fn tick(&mut self, context: &GlobalContext);
+
+    fn get_id(&self) -> u64;
 }
 
 pub struct PlayerControllerSystem {
+    id: u64,
     camera: Camera,
     controller: Box<dyn CameraController>,
     player_entity: SharedCell<Entity>,
 }
 impl PlayerControllerSystem {
     pub fn new(
+        id_manager: &IdManager,
         camera: Camera,
         controller: Box<dyn CameraController>,
         player_entity: SharedCell<Entity>,
-    ) -> GameSystem {
-        GameSystem {
-            object: Box::new(Self {
-                camera,
-                controller,
-                player_entity,
-            }),
-        }
+    ) -> Box<PlayerControllerSystem> {
+        Box::new(Self {
+            id: id_manager.next_id(),
+            camera,
+            controller,
+            player_entity,
+        })
     }
 }
 impl SystemObject for PlayerControllerSystem {
@@ -96,10 +111,9 @@ impl SystemObject for PlayerControllerSystem {
         self.player_entity.borrow_mut().space_component().set_pos(&pos);
 
         context.update_camera_uniform(&self.camera);
+    }
 
-        // self.player_entity.borrow_mut().input(GameEvent::SendValueWith {
-        //     string: "set position".to_string(),
-        //     value: ValueType::Float3(self.camera.get_pos().into()),
-        // }); // we don't care about the response
+    fn get_id(&self) -> u64 {
+        self.id
     }
 }
