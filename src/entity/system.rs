@@ -27,10 +27,11 @@ impl SystemManager {
         }
     }
 
-    pub fn new_system(&mut self, sys_obj: Box<dyn SystemObject>) {
-        let id = sys_obj.get_id();
+    pub fn new_system(&mut self, mut sys_obj: Box<dyn SystemObject>) {
+        let id = self.id_manager.next_id();
+        sys_obj.set_id(id);
         let new_system = SharedCell::new(GameSystem {
-            // id,
+            id,
             object: sys_obj,
         });
         self.id_manager.register_system(new_system.clone());
@@ -39,7 +40,7 @@ impl SystemManager {
 }
 
 pub struct GameSystem {
-    // id: u64,
+    id: u64,
     object: Box<dyn SystemObject>,
 }
 impl GameSystem {
@@ -52,7 +53,7 @@ impl GameSystem {
     }
 
     pub fn get_id(&self) -> u64 {
-        self.object.get_id()
+        self.id
     }
 }
 
@@ -61,7 +62,8 @@ pub trait SystemObject {
 
     fn tick(&mut self, context: &GlobalContext);
 
-    fn get_id(&self) -> u64;
+    // only used when it's created
+    fn set_id(&mut self, id: u64);
 }
 
 pub struct PlayerControllerSystem {
@@ -72,13 +74,12 @@ pub struct PlayerControllerSystem {
 }
 impl PlayerControllerSystem {
     pub fn new(
-        id_manager: &IdManager,
         camera: Camera,
         controller: Box<dyn CameraController>,
         player_entity: SharedCell<Entity>,
     ) -> Box<PlayerControllerSystem> {
         Box::new(Self {
-            id: id_manager.next_id(),
+            id: 1,
             camera,
             controller,
             player_entity,
@@ -113,7 +114,7 @@ impl SystemObject for PlayerControllerSystem {
         context.update_camera_uniform(&self.camera);
     }
 
-    fn get_id(&self) -> u64 {
-        self.id
+    fn set_id(&mut self, id: u64) {
+        self.id = id;
     }
 }

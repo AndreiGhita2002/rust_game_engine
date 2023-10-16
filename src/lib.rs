@@ -401,8 +401,7 @@ impl GlobalContext {
                 &self.device,
                 &self.queue,
                 &self.bind_groups.texture_layout,
-            )
-            .await
+            ).await
         {
             Ok(_) => {
                 println!(" OK")
@@ -449,7 +448,6 @@ fn test_init(context: &mut GlobalContext) {
     });
 
     let player_controller = PlayerControllerSystem::new(
-        &context.id_manager,
         Camera::default(),
         Box::new(FreeCamController::default()),
         player,
