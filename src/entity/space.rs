@@ -3,8 +3,10 @@ use cgmath::{Matrix4, Quaternion, Vector3, Zero};
 use crate::{GlobalContext, util};
 use crate::entity::{Entity, EntityDesc};
 use crate::entity::event::{GameEvent, Response, ValueType};
-use crate::render::{RenderCommand, Single3DInstance};
 use crate::render::instance::{InstanceDesc, InstanceRef, InstanceType};
+use crate::render::render_2d::SingleSpriteComponent;
+use crate::render::render_3d::SingleModelComponent;
+use crate::render::RenderCommand;
 use crate::util::SharedCell;
 
 pub trait SpaceComponent {
@@ -96,7 +98,7 @@ impl SpaceComponent for NoSpaceComponent {
 
 // Game (3D) Space:
 pub struct GameSpaceMaster {
-    pub total_displacement: SharedCell<Vector3<f32>>, // should be the same as the camera coordinates
+    pub total_displacement: SharedCell<Vector3<f32>>,
 }
 impl SpaceComponent for GameSpaceMaster {
     fn init_child_entity(
@@ -125,7 +127,7 @@ impl SpaceComponent for GameSpaceMaster {
             instance: instance.clone(),
         });
         // render component:
-        entity.render_component = Single3DInstance::new("cube", instance)
+        entity.render_component = SingleModelComponent::new("cube", instance)
     }
 
     fn translate(&mut self, _vector: &[f32]) {}
@@ -235,5 +237,128 @@ impl SpaceComponent for GameSpaceComponent {
             },
             _ => Response::No,
         }
+    }
+}
+
+
+// Screen (2D) Space:
+pub struct ScreenSpaceMaster {}
+impl SpaceComponent for ScreenSpaceMaster {
+    fn init_child_entity(
+        &self,
+        context: &GlobalContext,
+        child_entity: SharedCell<Entity>,
+        entity_desc: &EntityDesc,
+        _depth: i32,
+    ) {
+        // creating the instance
+        let mut instance_manager = context.instance_manager.borrow_mut();
+        let pos = util::pad(&entity_desc.position, 2, 0.0);
+        let rot = util::pad(&entity_desc.rotation, 4, 0.0);
+        let instance = instance_manager.register_instance(InstanceDesc {
+            instance_type: InstanceType::Sprite,
+            position: Vector3::new(pos[0], pos[1], 0.0),
+            rotation: Quaternion::new(rot[0], rot[1], rot[2], rot[3]),
+        });
+        let mut entity = child_entity.borrow_mut();
+
+        println!("ScreenSpaceMaster is initialising Entity:{}", entity.get_id());
+
+        // space component:
+        entity.space_component = Box::new(ScreenSpaceComponent {
+            instance: instance.clone(),
+        });
+        // render component:
+        entity.render_component = SingleSpriteComponent::new("cat", instance)
+    }
+
+    fn translate(&mut self, _vector: &[f32]) {}
+
+    fn rotate(&mut self, _vector: &[f32]) {}
+
+    fn set_pos(&mut self, _vector: &[f32]) {}
+
+    fn set_rot(&mut self, _vector: &[f32]) {}
+
+    fn transform_render(&self, _command: &mut RenderCommand) {}
+
+    fn input(&mut self, _event: GameEvent) -> Response {
+        Response::No
+    }
+}
+impl Default for ScreenSpaceMaster {
+    fn default() -> Self {
+        ScreenSpaceMaster {}
+    }
+}
+
+pub struct ScreenSpaceComponent {
+    instance: InstanceRef,
+}
+impl SpaceComponent for ScreenSpaceComponent {
+    fn init_child_entity(
+        &self,
+        _context: &GlobalContext,
+        _child_entity: SharedCell<Entity>,
+        _entity_desc: &EntityDesc,
+        _depth: i32,
+    ) {}
+
+    fn translate(&mut self, vector: &[f32]) {
+        if vector.len() == 2 {
+            self.instance.add_pos((vector[0], vector[1], 0.0))
+        } else {
+            println!(
+                "[ERR] ScreenSpaceComponent of instance:{} received vector of wrong size for the \
+                method 'translate()';\n  vector.len={}, 2 was expected!",
+                self.instance.get_instance_id(),
+                vector.len()
+            )
+        }
+    }
+
+    fn rotate(&mut self, vector: &[f32]) {
+        if vector.len() == 4 {
+            self.instance.add_rot((vector[0], vector[1], vector[2], vector[3]))
+        } else {
+            println!(
+                "[ERR] ScreenSpaceComponent of instance:{} received vector of wrong size for \
+                the method 'rotate()';\n  vector.len={}, 4 was expected!",
+                self.instance.get_instance_id(),
+                vector.len()
+            )
+        }
+    }
+
+    fn set_pos(&mut self, vector: &[f32]) {
+        if vector.len() == 2 {
+            self.instance.set_pos((vector[0], vector[1], 0.0))
+        } else {
+            println!(
+                "[ERR] ScreenSpaceComponent of instance:{} received vector of wrong size for the \
+                method 'set_pos()';\n  vector.len={}, 2 was expected!",
+                self.instance.get_instance_id(),
+                vector.len()
+            )
+        }
+    }
+
+    fn set_rot(&mut self, vector: &[f32]) {
+        if vector.len() == 4 {
+            self.instance.set_rot((vector[0], vector[1], vector[2], vector[3]))
+        } else {
+            println!(
+                "[ERR] ScreenSpaceComponent of instance:{} received vector of wrong size for \
+                the method 'set_rot()';\n  vector.len={}, 4 was expected!",
+                self.instance.get_instance_id(),
+                vector.len()
+            )
+        }
+    }
+
+    fn transform_render(&self, _command: &mut RenderCommand) {}
+
+    fn input(&mut self, _event: GameEvent) -> Response {
+        Response::No
     }
 }

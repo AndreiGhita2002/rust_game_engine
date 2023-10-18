@@ -164,15 +164,22 @@ pub async fn load_model(
     Ok(model::Model { meshes, materials })
 }
 
-#[allow(dead_code)]
 pub async fn load_sprite(
-    file_name: &str,
-    vertices: Vec<SpriteVertex>,
+    sprite_name: &str,
+    vertices: Option<Vec<SpriteVertex>>,
     device: &Device,
     queue: &Queue,
     layout: &BindGroupLayout,
 ) -> anyhow::Result<model::Model> {
-    let diffuse_texture = load_texture(file_name, device, queue).await?;
+    let file_url = format!("{MODEL_DIR}{sprite_name}.jpg");  //todo sprites can only be jpg rn
+    let indices: Vec<u32> = vec![0, 1, 1, 2, 2, 3, 3, 0];
+    let vert = vertices.unwrap_or(vec![
+        SpriteVertex { position: [1.0, 1.0], tex_coords: [1.0, 1.0] },
+        SpriteVertex { position: [1.0, 0.0], tex_coords: [1.0, 0.0] },
+        SpriteVertex { position: [0.0, 0.0], tex_coords: [0.0, 0.0] },
+        SpriteVertex { position: [0.0, 1.0], tex_coords: [0.0, 1.0] },
+    ]);
+    let diffuse_texture = load_texture(&file_url, device, queue).await?;
     // todo: use the size of the texture:
     // let ratio = diffuse_texture.texture.height() as f32 / diffuse_texture.texture.width() as f32;
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -189,15 +196,12 @@ pub async fn load_sprite(
         ],
         label: None,
     });
-
-    let indices: Vec<u32> = vec![0, 1, 1, 2, 2, 3, 3, 0];
-
     Ok(model::Model {
         meshes: vec![Mesh::from_vertices(
-            vertices, indices, file_name, None, device,
+            vert, indices, sprite_name, None, device,
         )],
         materials: vec![Material {
-            name: file_name.to_string(),
+            name: sprite_name.to_string(),
             diffuse_texture,
             bind_group,
         }],

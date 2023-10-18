@@ -2,7 +2,7 @@ use std::mem;
 use std::ops::DerefMut;
 
 use event::{GameEvent, Response};
-use space::{GameSpaceMaster, NoSpaceComponent, NoSpaceMaster, SpaceComponent};
+use space::{NoSpaceComponent, NoSpaceMaster, SpaceComponent};
 
 use crate::entity::component::Component;
 use crate::GlobalContext;
@@ -26,34 +26,6 @@ impl EntityManager {
             id_manager,
             entities: vec![root],
         }
-    }
-
-    pub fn init(&mut self, context: &GlobalContext) {
-        // space master
-        let space_master = self.new_entity(&context, EntityDesc {
-            parent_id: Some(0),
-            space_component: Some(Box::new(GameSpaceMaster::default())),
-            render_component: Some(NoRender::new()),
-            ..Default::default()
-        });
-        // first cube
-        self.new_entity(&context, EntityDesc {
-            parent_id: Some(space_master.get_id()),
-            position: vec![1.0, 0.0, 0.0],
-            ..Default::default()
-        });
-        // second cube
-        self.new_entity(&context, EntityDesc {
-            parent_id: Some(space_master.get_id()),
-            position: vec![-1.0, -2.0, 0.0],
-            ..Default::default()
-        });
-        // third cube:
-        self.new_entity(&context, EntityDesc {
-            parent_id: Some(space_master.get_id()),
-            position: vec![1.0, 2.0, 0.0],
-            ..Default::default()
-        });
     }
 
     pub fn new_entity(

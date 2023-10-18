@@ -1,3 +1,4 @@
+use std::default::Default;
 use std::ops::Deref;
 
 use cfg_if::cfg_if;
@@ -12,10 +13,11 @@ use winit::window::{Fullscreen, Window, WindowBuilder};
 use render::texture::Texture;
 
 use crate::camera::{Camera, CameraUniform, FreeCamController};
-use crate::entity::{EntityDesc, EntityManager};
+use crate::entity::{EntityDesc, EntityManager, EntityRef};
 use crate::entity::event::{EventDispatcher, GameEvent};
+use crate::entity::space::{GameSpaceMaster, ScreenSpaceMaster};
 use crate::entity::system::{PlayerControllerSystem, SystemManager};
-use crate::render::{LightUniform, Renderer};
+use crate::render::{LightUniform, NoRender, Renderer};
 use crate::render::instance::InstanceManager;
 use crate::util::{IdManager, SharedCell};
 
@@ -43,7 +45,7 @@ pub struct GlobalContext {
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
     bind_groups: BindGroups,
-    renderer_3d: Renderer,
+    renderers: Vec<Renderer>,
     // camera stuff:
     camera_buffer: Buffer,
     // depth texture:
@@ -236,8 +238,13 @@ impl GlobalContext {
         let system_manager = SharedCell::new(SystemManager::new(id_manager.clone()));
 
         // renderers:
-        let renderer_3d =
-            render::preset_renderers::preset_renderer_3d(&device, &config, &bind_groups);
+        let mut renderers = Vec::new();
+        renderers.push(
+            render::render_3d::preset_renderer_3d(&device, &config, &bind_groups)
+        );
+        renderers.push(
+            render::render_2d::preset_renderer_2d(&device, &config, &bind_groups)
+        );
 
         Self {
             surface,
@@ -247,7 +254,7 @@ impl GlobalContext {
             size,
             window,
             bind_groups,
-            renderer_3d,
+            renderers,
             camera_buffer,
             depth_texture,
             light_uniform,
@@ -257,7 +264,7 @@ impl GlobalContext {
             instance_manager,
             entity_manager,
             system_manager,
-            background: [0.1, 0.1, 0.1, 1.0],
+            background: [0.0, 0.0, 0.0, 1.0],
         }
     }
 
@@ -337,9 +344,9 @@ impl GlobalContext {
                 label: Some("Render Encoder"),
             });
         // rendering through the view graph:
-        let commands = self.entity_manager.borrow().render();
+        let mut commands = self.entity_manager.borrow().render();
         {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[
                     // This is what @location(0) in the fragment shader targets
@@ -366,12 +373,14 @@ impl GlobalContext {
                     stencil_ops: None,
                 }),
             });
-            self.renderer_3d.render(
-                render_pass,
-                commands,
-                instance_manager.deref(),
-                &self.bind_groups,
-            );
+            for renderer in self.renderers.iter() {
+                renderer.render(
+                    &mut render_pass,
+                    &mut commands,
+                    instance_manager.deref(),
+                    &self.bind_groups,
+                );
+            }
         }
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -388,32 +397,52 @@ impl GlobalContext {
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[uniform]));
     }
 
-    pub async fn async_load_model(&self, file_name: &str) {
+    pub async fn async_load_model(&self, model_name: &str) {
         let mut instance_manager = self.instance_manager.borrow_mut();
-        if instance_manager.models.contains_key(file_name) {
+        if instance_manager.models.contains_key(model_name) {
             return;
         }
 
-        print!("[RES] Loading model {file_name}: ");
+        print!("[RES] Loading model {model_name}: ");
         match instance_manager
             .load_model(
-                file_name,
+                model_name,
                 &self.device,
                 &self.queue,
                 &self.bind_groups.texture_layout,
             ).await
         {
-            Ok(_) => {
-                println!(" OK")
-            }
-            Err(e) => {
-                println!(" ERROR: {e}")
-            }
+            Ok(()) => println!(" OK"),
+            Err(e) => println!(" ERROR: {e}"),
         }
     }
 
-    pub fn load_model(&self, file_name: &str) {
-        pollster::block_on(async { self.async_load_model(file_name).await });
+    pub async fn async_load_sprite(&self, sprite_name: &str) {
+        let mut instance_manager = self.instance_manager.borrow_mut();
+        if instance_manager.models.contains_key(sprite_name) {
+            return;
+        }
+
+        print!("[RES] Loading sprite {sprite_name}: ");
+        match instance_manager
+            .load_sprite(
+                sprite_name,
+                &self.device,
+                &self.queue,
+                &self.bind_groups.texture_layout,
+            ).await
+        {
+            Ok(()) => println!(" OK"),
+            Err(e) => println!(" ERROR: {e}"),
+        }
+    }
+
+    pub fn load_model(&self, model_name: &str) {
+        pollster::block_on(async { self.async_load_model(model_name).await });
+    }
+
+    pub fn load_sprite(&self, sprite_name: &str) {
+        pollster::block_on(async { self.async_load_sprite(sprite_name).await });
     }
 
     pub fn set_cursor_to_center(&mut self) {
@@ -432,21 +461,62 @@ impl GlobalContext {
 }
 
 fn test_init(context: &mut GlobalContext) {
-    // loading models
+    // loading models and sprite
     context.load_model("cube");
     context.load_model("cat_cube");
+    context.load_sprite("cat");
 
     // setup the entity manager
     let mut entity_manager = context.entity_manager.borrow_mut();
-    entity_manager.init(&context);
+    {
+        // ----- 3D Space -----
+        let space_master = entity_manager.new_entity(&context, EntityDesc {
+            parent_id: Some(0),
+            space_component: Some(Box::new(GameSpaceMaster::default())),
+            render_component: Some(NoRender::new()),
+            ..Default::default()
+        });
+        // cubes
+        const N: i32 = 2;
+        const S: f32 = 2.0;
+        for i in -(N / 2)..(N / 2) {
+            for j in -(N / 2)..(N / 2) {
+                for k in -(N / 2)..(N / 2) {
+                    if i == j && j == k && k == 0 {
+                        continue
+                    }
+                    entity_manager.new_entity(&context, EntityDesc {
+                        parent_id: Some(space_master.get_id()),
+                        position: vec![i as f32 * S, j as f32 * S, k as f32 * S],
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+        // ----- Screen Space -----
+        let screen_master = entity_manager.new_entity(&context, EntityDesc{
+            parent_id: Some(0),
+            space_component: Some(Box::new(ScreenSpaceMaster::default())),
+            render_component: Some(NoRender::new()),
+            ..Default::default()
+        });
+        // cat sprite
+        entity_manager.new_entity(&context, EntityDesc {
+            parent_id: Some(screen_master.get_id()),
+            position: vec![0.0, 0.0],
+            ..Default::default()
+        });
+    }
     entity_manager.print_entities();
 
+    // player
     let player = entity_manager.new_entity(&context, EntityDesc {
         parent_id: Some(0),
         position: vec![0.0, 0.0, 0.0],
         ..Default::default()
     });
 
+    // systems
     let player_controller = PlayerControllerSystem::new(
         Camera::default(),
         Box::new(FreeCamController::default()),

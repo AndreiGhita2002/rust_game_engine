@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::mem;
 use std::ops::{AddAssign, Deref};
 
-use cgmath::{Matrix4, Quaternion, Vector3, Zero};
+use cgmath::{Matrix2, Matrix4, Quaternion, Vector2, Vector3, Zero};
 use wgpu::{BindGroupLayout, Buffer, BufferAddress};
 use wgpu::util::DeviceExt;
 
@@ -11,31 +11,36 @@ use crate::render::model::Model;
 use crate::util::{IdManager, QueueBuffer, QueueBufferRef, SharedCell};
 
 pub struct InstanceManager {
-    // 3D
     pub models: HashMap<String, Model>,
     pub instances: Vec<Instance>,
     pub instance_3d_buffer: Buffer,
+    pub n_3d_buffer: u32,
+    pub instance_2d_buffer: Buffer,
+    pub n_2d_buffer: u32,
     needs_buffer_remake: bool,
-    // 2D
-    //pub sprites: HashMap<String, Model>,
-    //instances_2d: Vec<Instance2D>,
-    //pub instance_2d_buffer: Buffer,
-    // id manager:
     pub id_manager: IdManager,
 }
 impl InstanceManager {
     pub fn new(device: &wgpu::Device, id_manager: IdManager) -> Self {
         let instance_3d_data: Vec<Instance3DRaw> = Vec::new();
+        let instance_2d_data: Vec<Instance2DRaw> = Vec::new();
         Self {
             // 3D
             models: HashMap::new(),
             instances: Vec::new(),
             instance_3d_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Instance Buffer"),
+                label: Some("3D Instance Buffer"),
                 contents: bytemuck::cast_slice(&instance_3d_data),
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             }),
-            needs_buffer_remake: false,
+            instance_2d_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("2D Instance Buffer"),
+                contents: bytemuck::cast_slice(&instance_2d_data),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            }),
+            n_2d_buffer: 0,
+            n_3d_buffer: 0,
+            needs_buffer_remake: true,
             id_manager,
         }
     }
@@ -45,20 +50,32 @@ impl InstanceManager {
             self.remake_buffer(context);
         } else {
             for instance in self.instances.iter_mut() {
-                instance.tick(context, &self.instance_3d_buffer);
+                instance.tick(context, &self.instance_3d_buffer, &self.instance_2d_buffer);
             }
         }
     }
 
     pub fn register_instance(&mut self, instance_desc: InstanceDesc) -> InstanceRef {
-        println!("Registering Instance: {:?}", instance_desc);
+        print!("Registering Instance: {:?}", instance_desc);
+        let buf_id;
+        match &instance_desc.instance_type {
+            &InstanceType::Model => {
+                buf_id = self.n_3d_buffer;
+                self.n_3d_buffer += 1;
+            }
+            &InstanceType::Sprite => {
+                buf_id = self.n_2d_buffer;
+                self.n_2d_buffer += 1;
+            }
+        }
+        println!(" with buffer_id: {buf_id}");
         let instance = Instance {
             instance_type: instance_desc.instance_type,
             change_buffer: QueueBuffer::new(),
             position: instance_desc.position,
             rotation: instance_desc.rotation,
             // todo(feature:Delete) this code makes some assumptions about the id:
-            buffer_id: SharedCell::new(self.instances.len() as u32),
+            buffer_id: SharedCell::new(buf_id),
         };
         let inst_ref = instance.get_ref();
         self.instances.push(instance);
@@ -68,42 +85,60 @@ impl InstanceManager {
 
     pub async fn load_model(
         &mut self,
-        file_name: &str,
+        model_name: &str,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         texture_bind_group_layout: &BindGroupLayout,
     ) -> anyhow::Result<()> {
         let model =
-            resources::load_model(file_name, &device, &queue, &texture_bind_group_layout).await?;
-        self.models.insert(file_name.to_string(), model);
+            resources::load_model(model_name, &device, &queue, &texture_bind_group_layout).await?;
+        self.models.insert(model_name.to_string(), model);
+        anyhow::Ok(())
+    }
+
+    pub async fn load_sprite(
+        &mut self,
+        sprite_name: &str,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture_bind_group_layout: &BindGroupLayout,
+    ) -> anyhow::Result<()> {
+        let sprite = resources::load_sprite(sprite_name, None, &device, &queue, &texture_bind_group_layout).await?;
+        self.models.insert(sprite_name.to_string(), sprite);
         anyhow::Ok(())
     }
 
     pub fn remake_buffer(&mut self, context: &GlobalContext) {
-        let instance_data = self
-            .instances
-            .iter()
-            .map(|inst| inst.to_raw())
-            .collect::<Vec<_>>();
-        let instance_buffer =
-            context
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Instance Buffer"),
-                    contents: bytemuck::cast_slice(&instance_data),
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                });
-        self.instance_3d_buffer = instance_buffer;
+        let mut raw3 = Vec::new();
+        let mut raw2 = Vec::new();
+        for instance in self.instances.iter() {
+            match instance.to_raw() {
+                RawInstance::Model(r3) => raw3.push(r3),
+                RawInstance::Sprite(r2) => raw2.push(r2),
+            }
+        }
+        self.instance_3d_buffer = context
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("3D Instance Buffer"),
+                contents: bytemuck::cast_slice(&raw3),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+        self.instance_2d_buffer = context
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("2D Instance Buffer"),
+                contents: bytemuck::cast_slice(&raw2),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
         self.needs_buffer_remake = false;
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-#[allow(dead_code)]
 pub enum InstanceType {
     Model,
     Sprite,
-    ScreenSpace,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -122,7 +157,7 @@ pub struct Instance {
     buffer_id: SharedCell<u32>,
 }
 impl Instance {
-    pub fn tick(&mut self, context: &GlobalContext, instance_buffer: &Buffer) {
+    pub fn tick(&mut self, context: &GlobalContext, instance_buffer_3d: &Buffer, instance_buffer_2d: &Buffer) {
         let changes = self.change_buffer.get_buffer();
         // return if no changes were done to the instance:
         if changes.is_empty() {
@@ -140,11 +175,30 @@ impl Instance {
         }
 
         // updating the buffer:
-        context.queue.write_buffer(
-            instance_buffer,
-            (*self.buffer_id.borrow().deref() * INSTANCE_RAW_SIZE) as BufferAddress,
-            bytemuck::cast_slice(&[self.to_raw()]),
+        self.write_to_buffer(context, instance_buffer_3d, instance_buffer_2d);
+    }
+
+    fn write_to_buffer(&self, context: &GlobalContext, instance_buffer_3d: &Buffer, instance_buffer_2d: &Buffer) {
+        println!("[INST_BUF] writing to buffer for instance {:?} with buffer id: {}",
+            self.instance_type, self.buffer_id.borrow()
         );
+        let raw = self.to_raw();
+        match raw {
+            RawInstance::Model(raw_3) => {
+                context.queue.write_buffer(
+                    instance_buffer_3d,
+                    (*self.buffer_id.borrow().deref() * INSTANCE_RAW_3D_SIZE) as BufferAddress,
+                    bytemuck::cast_slice(&[raw_3]),
+                );
+            },
+            RawInstance::Sprite(raw_2) => {
+                context.queue.write_buffer(
+                    instance_buffer_2d,
+                    (*self.buffer_id.borrow().deref() * INSTANCE_RAW_2D_SIZE) as BufferAddress,
+                    bytemuck::cast_slice(&[raw_2]),
+                );
+            },
+        }
     }
 
     pub fn get_ref(&self) -> InstanceRef {
@@ -154,13 +208,28 @@ impl Instance {
         }
     }
 
-    pub fn to_raw(&self) -> Instance3DRaw {
-        Instance3DRaw {
-            model: (Matrix4::from_translation(self.position) * Matrix4::from(self.rotation)).into(),
-            normal: cgmath::Matrix3::from(self.rotation).into(),
+    pub fn to_raw(&self) -> RawInstance {
+        match self.instance_type {
+            InstanceType::Model => {
+                RawInstance::Model(Instance3DRaw {
+                    model: (Matrix4::from_translation(self.position) * Matrix4::from(self.rotation)).into(),
+                    normal: cgmath::Matrix3::from(self.rotation).into(),
+                })
+            },
+            InstanceType::Sprite => {
+                RawInstance::Sprite(Instance2DRaw {
+                    sprite: Matrix2::from_cols(
+                        Vector2::new(self.position[0], self.position[1]),
+                        Vector2::zero()
+                    ).into()
+                    //  rotation:   * Matrix2::from_angle(self.rotation))
+                })
+            },
         }
+
     }
 }
+
 #[derive(Clone)]
 pub struct InstanceRef {
     pub changes_buffer: QueueBufferRef<InstanceChange>,
@@ -204,13 +273,19 @@ impl Default for InstanceDesc {
     }
 }
 
+// RAW INSTANCES
+pub enum RawInstance {
+    Model(Instance3DRaw),
+    Sprite(Instance2DRaw),
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Instance3DRaw {
     model: [[f32; 4]; 4],
     normal: [[f32; 3]; 3],
 }
-const INSTANCE_RAW_SIZE: u32 = mem::size_of::<Instance3DRaw>() as u32;
+const INSTANCE_RAW_3D_SIZE: u32 = mem::size_of::<Instance3DRaw>() as u32;
 
 impl Instance3DRaw {
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -260,6 +335,34 @@ impl Instance3DRaw {
                     offset: mem::size_of::<[f32; 22]>() as BufferAddress,
                     shader_location: 11,
                     format: wgpu::VertexFormat::Float32x3,
+                },
+            ],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Instance2DRaw {
+    sprite: [[f32; 2]; 2],
+}
+const INSTANCE_RAW_2D_SIZE: u32 = mem::size_of::<Instance2DRaw>() as u32;
+
+impl Instance2DRaw {
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Instance2DRaw>() as BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 2]>() as BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x2,
                 },
             ],
         }

@@ -6,11 +6,13 @@ use wgpu::RenderPass;
 use crate::{BindGroups, GlobalContext};
 use crate::entity::component::Component;
 use crate::entity::Entity;
-use crate::render::instance::{InstanceManager, InstanceRef};
+use crate::render::instance::InstanceManager;
 
 pub mod instance;
 pub mod model;
 pub mod texture;
+pub mod render_3d;
+pub mod render_2d;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -23,7 +25,6 @@ pub struct LightUniform {
     pub _padding2: u32,
 }
 
-#[allow(dead_code)]
 pub struct Renderer {
     label: String,
     render_pipeline: wgpu::RenderPipeline,
@@ -120,58 +121,27 @@ impl Renderer {
 
     pub fn render<'a>(
         &'a self,
-        mut render_pass: RenderPass<'a>,
-        commands: Vec<RenderCommand>,
+        render_pass: &mut RenderPass<'a>,
+        commands: &mut Vec<RenderCommand>,
         instance_manager: &'a InstanceManager,
         bind_groups: &'a BindGroups,
     ) {
         render_pass.set_pipeline(&self.render_pipeline);
-        self.init_render_pass(&mut render_pass, instance_manager, bind_groups);
-        for command in commands {
-            self.render_command(&mut render_pass, command, instance_manager, bind_groups);
+        self.init_render_pass(render_pass, instance_manager, bind_groups);
+
+        // iterates through commands and take ownership of the ones that match the current renderer
+        let mut l = commands.len();
+        let mut i = 0;
+        while i < l {
+            if commands[i].renderer == self.label {
+                let command = commands.remove(i);
+                self.render_command(render_pass, command, instance_manager, bind_groups);
+                l -= 1;
+            } else {
+                i += 1;
+            }
+
         }
-    }
-}
-
-pub mod preset_renderers {
-    use crate::BindGroups;
-    use crate::render::{Renderer, StandardRender3d};
-    use crate::render::instance::Instance3DRaw;
-    use crate::render::model::{ModelVertex, Vertex};
-    use crate::render::texture::Texture;
-
-    pub fn preset_renderer_3d(
-        device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
-        bind_groups: &BindGroups,
-    ) -> Renderer {
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("3D Render Pipeline Layout"),
-            bind_group_layouts: &[
-                &bind_groups.texture_layout,
-                &bind_groups.camera_layout,
-                &bind_groups.light_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-        let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("Normal Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../res/shaders/shader.wgsl").into()),
-        };
-
-        // render functions:
-        let render_fn_object = Box::new(StandardRender3d {});
-
-        Renderer::new(
-            "3D Render Pipeline",
-            &device,
-            &layout,
-            config.format,
-            Some(Texture::DEPTH_FORMAT),
-            &[ModelVertex::desc(), Instance3DRaw::desc()],
-            shader,
-            render_fn_object,
-        )
     }
 }
 
@@ -196,51 +166,10 @@ pub trait RenderFunctions {
         'a: 'b;
 }
 
-pub struct StandardRender3d {}
-impl RenderFunctions for StandardRender3d {
-    fn render_init<'a, 'b>(
-        &self,
-        render_pass: &mut RenderPass<'b>,
-        _renderer: &'a Renderer,
-        instance_manager: &'a InstanceManager,
-        bind_groups: &'a BindGroups,
-    ) where
-        'a: 'b,
-    {
-        render_pass.set_vertex_buffer(1, instance_manager.instance_3d_buffer.slice(..));
-        render_pass.set_bind_group(1, &bind_groups.camera, &[]);
-        render_pass.set_bind_group(2, &bind_groups.light, &[]);
-    }
-
-    fn render<'a, 'b>(
-        &self,
-        render_pass: &mut RenderPass<'b>,
-        command: RenderCommand,
-        _renderer: &'a Renderer,
-        instance_manager: &'a InstanceManager,
-        _bind_groups: &'a BindGroups,
-    ) where
-        'a: 'b,
-    {
-        let (model_name, _, instances) = command.unpack();
-        if let Some(model) = instance_manager.models.get(&model_name) {
-            for mesh in &model.meshes {
-                let material = &model.materials[mesh.material];
-                render_pass.set_bind_group(0, &material.bind_group, &[]);
-                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..mesh.num_elements, 0, instances.clone());
-            }
-        } else {
-            println!("[RENDER] Model not found: {}", model_name)
-        }
-    }
-}
-
 pub struct RenderCommand {
+    pub renderer: String,
     pub model: String,
-    pub transform: Option<Matrix4<f32>>, //todo: figure out why this there is a matrix in RenderCommand
+    pub transform: Option<Matrix4<f32>>, //todo: figure out what to do with this and implement it
     pub instances: Option<Range<u32>>,
 }
 impl RenderCommand {
@@ -257,42 +186,10 @@ pub trait RenderComponent {
 
     fn render(&self, entity: &Entity, commands: &mut Vec<RenderCommand>);
 
+    // todo is this necessary:
     fn transform_child(&self, child_command: RenderCommand) -> RenderCommand;
 
     fn get_name(&self) -> String;
-}
-
-pub struct Single3DInstance {
-    pub model_name: String,
-    pub instance_ref: InstanceRef,
-}
-impl Single3DInstance {
-    pub fn new(model_name: &str, instance_ref: InstanceRef) -> Box<Self> {
-        Box::new(Self {
-            instance_ref,
-            model_name: model_name.to_string(),
-        })
-    }
-}
-impl RenderComponent for Single3DInstance {
-    fn init(&mut self, _context: &GlobalContext, _components: &Vec<Component>) {}
-
-    fn render(&self, _entity: &Entity, commands: &mut Vec<RenderCommand>) {
-        let i = self.instance_ref.get_instance_id();
-        commands.push(RenderCommand {
-            model: self.model_name.clone(),
-            transform: None,
-            instances: Some(i..(i + 1)),
-        })
-    }
-
-    fn transform_child(&self, child_command: RenderCommand) -> RenderCommand {
-        child_command
-    }
-
-    fn get_name(&self) -> String {
-        "Single 3D Instance Render".to_string()
-    }
 }
 
 pub struct NoRender {}
