@@ -1,14 +1,21 @@
 // Vertex shader
-//copied from the 3d one
+
 struct InstanceInput {
     @location(2) sprite_matrix_0: vec2<f32>,
     @location(3) sprite_matrix_1: vec2<f32>,
 };
-// copied from the 3d one
+
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) tex_coords: vec2<f32>,
 };
+
+struct Camera {
+    view_pos: vec4<f32>,
+    view_proj: mat4x4<f32>,
+}
+@group(1) @binding(0)
+var<uniform> camera: Camera;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -29,7 +36,7 @@ fn vs_main(
 
     out.tex_coords = sprite.tex_coords;
 
-    out.position = vec4<f32>(sprite.position * sprite_matrix, 0.0, 0.0);
+    out.position = vec4<f32>(sprite.position * sprite_matrix, 0.0, 1.0);
 
     return out;
 }

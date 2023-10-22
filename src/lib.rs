@@ -1,5 +1,4 @@
 use std::default::Default;
-use std::ops::Deref;
 
 use cfg_if::cfg_if;
 use cgmath::{Quaternion, Rotation3, Vector3};
@@ -333,7 +332,6 @@ impl GlobalContext {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let instance_manager = self.instance_manager.borrow();
         let output = self.surface.get_current_texture()?;
         let texture_view = output
             .texture
@@ -345,42 +343,13 @@ impl GlobalContext {
             });
         // rendering through the view graph:
         let mut commands = self.entity_manager.borrow().render();
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[
-                    // This is what @location(0) in the fragment shader targets
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: &texture_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: self.background[0],
-                                g: self.background[1],
-                                b: self.background[2],
-                                a: self.background[3],
-                            }),
-                            store: true,
-                        },
-                    }),
-                ],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_texture.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
-                    }),
-                    stencil_ops: None,
-                }),
-            });
-            for renderer in self.renderers.iter() {
-                renderer.render(
-                    &mut render_pass,
-                    &mut commands,
-                    instance_manager.deref(),
-                    &self.bind_groups,
-                );
-            }
+        for renderer in self.renderers.iter() {
+            renderer.render(
+                &self,
+                &mut encoder,
+                &texture_view,
+                &mut commands,
+            );
         }
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -500,6 +469,7 @@ fn test_init(context: &mut GlobalContext) {
             render_component: Some(NoRender::new()),
             ..Default::default()
         });
+        //todo make this show:
         // cat sprite
         entity_manager.new_entity(&context, EntityDesc {
             parent_id: Some(screen_master.get_id()),

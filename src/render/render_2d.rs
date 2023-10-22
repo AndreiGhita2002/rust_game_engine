@@ -1,4 +1,4 @@
-use wgpu::RenderPass;
+use wgpu::{CommandEncoder, RenderPass, RenderPassDescriptor, TextureView};
 
 use crate::{BindGroups, GlobalContext};
 use crate::entity::component::Component;
@@ -19,6 +19,7 @@ pub fn preset_renderer_2d(
         //  then make this common with 3d renderer
         bind_group_layouts: &[
             &bind_groups.texture_layout,
+            &bind_groups.camera_layout,
         ],
         push_constant_ranges: &[],
     });
@@ -44,16 +45,47 @@ pub fn preset_renderer_2d(
 
 pub struct StandardRender2d {}
 impl RenderFunctions for StandardRender2d {
+    fn begin_render_pass<'a>(
+        &'a self,
+        encoder: &'a mut CommandEncoder,
+        context: &'a GlobalContext,
+        texture_view: &'a TextureView
+    ) -> RenderPass<'a> {
+        encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("2D Render Pass"),
+            color_attachments: &[
+                // This is what @location(0) in the fragment shader targets
+                Some(wgpu::RenderPassColorAttachment {
+                    view: texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                }),
+            ],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &context.depth_texture.view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: true,
+                }),
+                stencil_ops: None,
+            }),
+        })
+    }
+
     fn render_init<'a, 'b>(
         &self,
         render_pass: &mut RenderPass<'b>,
         _renderer: &'a Renderer,
         instance_manager: &'a InstanceManager,
-        _bind_groups: &'a BindGroups,
+        bind_groups: &'a BindGroups,
     ) where
         'a: 'b,
     {
         render_pass.set_vertex_buffer(1, instance_manager.instance_2d_buffer.slice(..));
+        render_pass.set_bind_group(1, &bind_groups.camera, &[]);
     }
 
     fn render<'a, 'b>(

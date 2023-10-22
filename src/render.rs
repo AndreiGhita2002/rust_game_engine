@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use cgmath::Matrix4;
-use wgpu::RenderPass;
+use wgpu::{CommandEncoder, RenderPass, TextureView};
 
 use crate::{BindGroups, GlobalContext};
 use crate::entity::component::Component;
@@ -98,54 +98,56 @@ impl Renderer {
         }
     }
 
-    fn init_render_pass<'a>(
-        &'a self,
-        render_pass: &mut RenderPass<'a>,
-        instance_manager: &'a InstanceManager,
-        bind_groups: &'a BindGroups,
-    ) {
-        self.render_fn_object
-            .render_init(render_pass, &self, instance_manager, bind_groups)
-    }
-
-    fn render_command<'a>(
-        &'a self,
-        render_pass: &mut RenderPass<'a>,
-        command: RenderCommand,
-        instance_manager: &'a InstanceManager,
-        bind_groups: &'a BindGroups,
-    ) {
-        self.render_fn_object
-            .render(render_pass, command, &self, instance_manager, bind_groups)
-    }
-
     pub fn render<'a>(
         &'a self,
-        render_pass: &mut RenderPass<'a>,
+        context: &GlobalContext,
+        encoder: &mut CommandEncoder,
+        texture_view: &TextureView,
         commands: &mut Vec<RenderCommand>,
-        instance_manager: &'a InstanceManager,
-        bind_groups: &'a BindGroups,
     ) {
-        render_pass.set_pipeline(&self.render_pipeline);
-        self.init_render_pass(render_pass, instance_manager, bind_groups);
+        let instance_manager = &*context.instance_manager.borrow();
+        let mut render_pass = self.render_fn_object.begin_render_pass(
+            encoder, context, texture_view
+        );
 
-        // iterates through commands and take ownership of the ones that match the current renderer
+        // initiating the render pass
+        render_pass.set_pipeline(&self.render_pipeline);
+        self.render_fn_object.render_init(
+            &mut render_pass,
+            self,
+            instance_manager,
+            &context.bind_groups
+        );
+
+        // iterates through commands and take ownership of
+        // the ones that match the current renderer
         let mut l = commands.len();
         let mut i = 0;
         while i < l {
             if commands[i].renderer == self.label {
                 let command = commands.remove(i);
-                self.render_command(render_pass, command, instance_manager, bind_groups);
+                self.render_fn_object
+                    .render(
+                    &mut render_pass,
+                    command,
+                    self,
+                    instance_manager,
+                    &context.bind_groups,
+                );
                 l -= 1;
-            } else {
-                i += 1;
-            }
-
+            } else { i += 1 };
         }
     }
 }
 
 pub trait RenderFunctions {
+    fn begin_render_pass<'a>(
+        &'a self,
+        encoder: &'a mut CommandEncoder,
+        context: &'a GlobalContext,
+        texture_view: &'a TextureView,
+    ) -> RenderPass<'a>;
+
     fn render_init<'a, 'b>(
         &self,
         render_pass: &mut RenderPass<'b>,
