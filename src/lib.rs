@@ -426,7 +426,7 @@ fn test_init(context: &mut GlobalContext) {
             ..Default::default()
         });
         // cubes
-        const N: i32 = 2;
+        const N: i32 = 5;
         const S: f32 = 2.0;
         for i in -(N / 2)..(N / 2) {
             for j in -(N / 2)..(N / 2) {
