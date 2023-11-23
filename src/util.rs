@@ -106,18 +106,12 @@ impl<T> QueueBufferRef<T> {
         }
     }
 
-    pub fn clone(&self) -> Self {
-        QueueBufferRef {
-            buffer: self.buffer.clone(),
-        }
-    }
-
     pub fn push(&mut self, e: T) {
         self.buffer.borrow_mut().push(e)
     }
 }
 
-impl<T: Clone> Clone for QueueBufferRef<T> {
+impl<T> Clone for QueueBufferRef<T> {
     fn clone(&self) -> Self {
         QueueBufferRef {
             buffer: self.buffer.clone(),

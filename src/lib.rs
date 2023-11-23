@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::default::Default;
+use std::ops::DerefMut;
 
 use cfg_if::cfg_if;
 use cgmath::{Quaternion, Rotation3, Vector3};
@@ -14,10 +16,13 @@ use render::texture::Texture;
 use crate::camera::{Camera, CameraUniform, FreeCamController};
 use crate::entity::{EntityDesc, EntityManager, EntityRef};
 use crate::entity::event::{EventDispatcher, GameEvent};
+use crate::entity::render_comp::NoRender;
 use crate::entity::space::{GameSpaceMaster, ScreenSpaceMaster};
 use crate::entity::system::{PlayerControllerSystem, SystemManager};
-use crate::render::{LightUniform, NoRender, Renderer};
+use crate::render::{LightUniform, RenderDispatcher, Renderer};
 use crate::render::instance::InstanceManager;
+use crate::render::render_2d::StandardRender2d;
+use crate::render::render_3d::StandardRender3d;
 use crate::util::{IdManager, SharedCell};
 
 mod camera;
@@ -44,7 +49,7 @@ pub struct GlobalContext {
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
     bind_groups: BindGroups,
-    renderers: Vec<Renderer>,
+    render_dispatcher: RefCell<RenderDispatcher>,
     // camera stuff:
     camera_buffer: Buffer,
     // depth texture:
@@ -56,7 +61,7 @@ pub struct GlobalContext {
     id_manager: IdManager,
     event_dispatcher: EventDispatcher,
     instance_manager: SharedCell<InstanceManager>,
-    entity_manager: SharedCell<EntityManager>,
+    entity_manager: RefCell<EntityManager>,
     system_manager: SharedCell<SystemManager>,
     // background colour:
     background: [f64; 4],
@@ -233,17 +238,9 @@ impl GlobalContext {
         let id_manager = IdManager::new();
         let event_dispatcher = EventDispatcher::new(id_manager.clone());
         let instance_manager = SharedCell::new(InstanceManager::new(&device, id_manager.clone()));
-        let entity_manager = SharedCell::new(EntityManager::new(id_manager.clone()));
+        let entity_manager = RefCell::new(EntityManager::new(id_manager.clone()));
         let system_manager = SharedCell::new(SystemManager::new(id_manager.clone()));
-
-        // renderers:
-        let mut renderers = Vec::new();
-        renderers.push(
-            render::render_3d::preset_renderer_3d(&device, &config, &bind_groups)
-        );
-        renderers.push(
-            render::render_2d::preset_renderer_2d(&device, &config, &bind_groups)
-        );
+        let render_dispatcher = RefCell::new(RenderDispatcher::new());
 
         Self {
             surface,
@@ -253,7 +250,7 @@ impl GlobalContext {
             size,
             window,
             bind_groups,
-            renderers,
+            render_dispatcher,
             camera_buffer,
             depth_texture,
             light_uniform,
@@ -332,28 +329,11 @@ impl GlobalContext {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
-        let texture_view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
         // rendering through the view graph:
-        let mut commands = self.entity_manager.borrow().render();
-        for renderer in self.renderers.iter() {
-            renderer.render(
-                &self,
-                &mut encoder,
-                &texture_view,
-                &mut commands,
-            );
-        }
-        // submit will accept anything that implements IntoIter
-        self.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
+        self.entity_manager.borrow().render(self.render_dispatcher.borrow_mut().deref_mut());
+
+        self.render_dispatcher.borrow_mut().render(&self)?;
+
         Ok(())
     }
 
@@ -478,6 +458,25 @@ fn test_init(context: &mut GlobalContext) {
         });
     }
     entity_manager.print_entities();
+
+    // renderers
+    let mut render_dispatcher = context.render_dispatcher.borrow_mut();
+    // 3d renderer
+    render_dispatcher.add_renderer(
+        Renderer::new(
+            &context,
+            "3d".to_string(),
+            Box::new(StandardRender3d {}),
+        )
+    );
+    // 2d renderer
+    render_dispatcher.add_renderer(
+        Renderer::new(
+            &context,
+            "2d".to_string(),
+            Box::new(StandardRender2d {}),
+        )
+    );
 
     // player
     let player = entity_manager.new_entity(&context, EntityDesc {

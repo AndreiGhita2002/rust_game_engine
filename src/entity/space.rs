@@ -1,4 +1,4 @@
-use cgmath::{Matrix4, Quaternion, Vector3, Zero};
+use cgmath::{Quaternion, Vector3, Zero};
 
 use crate::{GlobalContext, util};
 use crate::entity::{Entity, EntityDesc};
@@ -219,8 +219,9 @@ impl SpaceComponent for GameSpaceComponent {
     }
 
     fn transform_render(&self, command: &mut RenderCommand) {
-        let matrix = Matrix4::from_translation(self.total_displacement.borrow().clone());
-        command.transform = Some(matrix);
+        // todo figure out why this was here
+        // let matrix = Matrix4::from_translation(self.total_displacement.borrow().clone());
+        // command.transform = Some(matrix);
     }
 
     fn input(&mut self, event: GameEvent) -> Response {

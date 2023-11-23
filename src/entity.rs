@@ -5,14 +5,16 @@ use event::{GameEvent, Response};
 use space::{NoSpaceComponent, NoSpaceMaster, SpaceComponent};
 
 use crate::entity::component::Component;
+use crate::entity::render_comp::NoRender;
 use crate::GlobalContext;
-use crate::render::{NoRender, RenderCommand, RenderComponent};
+use crate::render::{RenderCommand, RenderComponent, RenderDispatcher};
 use crate::util::{IdManager, SharedCell};
 
 pub mod system;
 pub mod space;
 pub mod component;
 pub mod event;
+pub mod render_comp;
 
 pub struct EntityManager {
     id_manager: IdManager,
@@ -80,10 +82,10 @@ impl EntityManager {
         }
     }
 
-    pub fn render(&self) -> Vec<RenderCommand> {
+    pub fn render(&self, render_dispatcher: &mut RenderDispatcher) -> Vec<RenderCommand> {
         let mut commands = Vec::new();
         if let Some(root) = self.entities.get(0) {
-            root.borrow_mut().render(&mut commands);
+            root.borrow_mut().render(render_dispatcher);
         }
         commands
     }
@@ -193,16 +195,16 @@ impl Entity {
         self.space_component.deref_mut()
     }
 
-    pub fn render(&self, commands: &mut Vec<RenderCommand>) {
+    pub fn render(&self, render_dispatcher: &mut RenderDispatcher) {
         // rendering self
-        self.render_component.render(&self, commands);
+        self.render_component.render(&self, render_dispatcher);
         //todo add the transform thing:
         // self.space_component.transform_render(commands);
 
         // rendering children:
         // tick for children
         for child_cell in self.children.iter() {
-            child_cell.borrow().render(commands);
+            child_cell.borrow().render(render_dispatcher);
         }
     }
 
