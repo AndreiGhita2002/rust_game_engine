@@ -270,7 +270,10 @@ impl SpaceComponent for ScreenSpaceMaster {
             instance: instance.clone(),
         });
         // render component:
-        entity.render_component = SingleSpriteComponent::new("cat", instance)
+        entity.render_component = Box::new(SingleSpriteComponent{
+            sprite_name: "cat".to_string(),
+            instance_ref: instance,
+        })
     }
 
     fn translate(&mut self, _vector: &[f32]) {}

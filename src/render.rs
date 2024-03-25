@@ -75,7 +75,9 @@ impl RenderDispatcher {
     }
 
     pub fn push(&mut self, renderer: &str, command: RenderCommand) {
-        self.command_buffer.get_mut(renderer).unwrap().push(command)
+        if let Some(buffer) = self.command_buffer.get_mut(renderer) {
+            buffer.push(command)
+        }
     }
 }
 

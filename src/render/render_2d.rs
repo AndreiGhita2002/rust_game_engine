@@ -1,8 +1,8 @@
 use wgpu::{CommandEncoder, RenderPassDescriptor, RenderPipeline, SurfaceTexture};
 
-use crate::GlobalContext;
 use crate::entity::component::Component;
 use crate::entity::Entity;
+use crate::GlobalContext;
 use crate::render::{RenderCommand, RenderComponent, RenderDispatcher, RenderFn};
 use crate::render::instance::{Instance2DRaw, InstanceRef};
 use crate::render::model::{SpriteVertex, Vertex};
@@ -132,15 +132,6 @@ impl RenderFn for StandardRender2d {
 pub struct SingleSpriteComponent {
     pub sprite_name: String,
     pub instance_ref: InstanceRef,
-}
-
-impl SingleSpriteComponent {
-    pub fn new(sprite_name: &str, instance_ref: InstanceRef) -> Box<Self> {
-        Box::new(Self {
-            instance_ref,
-            sprite_name: sprite_name.to_string(),
-        })
-    }
 }
 
 impl RenderComponent for SingleSpriteComponent {
