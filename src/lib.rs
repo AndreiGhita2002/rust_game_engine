@@ -260,7 +260,7 @@ impl GlobalContext {
             instance_manager,
             entity_manager,
             system_manager,
-            background: [0.25, 0.0, 0.0, 1.0],
+            background: [0.0, 0.0, 0.0, 1.0],
         }
     }
 
