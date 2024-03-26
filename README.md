@@ -2,7 +2,7 @@
 
 This is a basic 3D game engine written in Rust, using the wgpu graphics library. This project is my first venture into graphics programming, so I would not call any of this 'good code'.   
 
-<img src="screenshot.png">
+<img src="screenshot.png" alt="Screenshot">
 
 ## Features
 - 3D rendering
