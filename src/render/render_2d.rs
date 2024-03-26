@@ -25,6 +25,7 @@ impl RenderFn for StandardRender2d {
             label: Some("2D Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../res/shaders/sprite.wgsl").into()),
         });
+
         context.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("2d pipeline"),
             layout: Some(&layout),
@@ -38,10 +39,7 @@ impl RenderFn for StandardRender2d {
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: context.config.format,
-                    blend: Some(wgpu::BlendState {
-                        alpha: wgpu::BlendComponent::REPLACE,
-                        color: wgpu::BlendComponent::REPLACE,
-                    }),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -52,9 +50,7 @@ impl RenderFn for StandardRender2d {
                 cull_mode: Some(wgpu::Face::Back),
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                 polygon_mode: wgpu::PolygonMode::Fill,
-                // Requires Features::DEPTH_CLIP_CONTROL
                 unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
             depth_stencil: Some(Texture::DEPTH_FORMAT).map(|format| wgpu::DepthStencilState {

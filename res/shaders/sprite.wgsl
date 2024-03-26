@@ -36,7 +36,13 @@ fn vs_main(
 
     out.tex_coords = sprite.tex_coords;
 
-    out.position = vec4<f32>(sprite.position * sprite_matrix, 0.0, 1.0);
+    // my original:
+//  out.position = vec4<f32>(sprite.position * sprite_matrix, 0.0, 1.0);
+    // found online:
+//  ... camera_uniforms.view_proj * vec4<f32>(position.x, position.y, in.position.z + sprite_uniforms.model_position.z, 1.0);
+
+//    out.position = camera.view_proj * vec4<f32>(sprite_matrix * sprite.position, 0.0, 1.0);
+    out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
 
     return out;
 }
@@ -49,6 +55,7 @@ var s_diffuse: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+//    let color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    let color = vec4<f32>(0.5,0.5,0.5,0.5);
     return color;
 }

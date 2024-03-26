@@ -92,12 +92,7 @@ impl RenderFn for StandardRender3d {
                     view: &texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: context.background[0],
-                            g: context.background[1],
-                            b: context.background[2],
-                            a: context.background[3],
-                        }),
+                        load: wgpu::LoadOp::Load,
                         store: true,
                     },
                 }),

@@ -220,7 +220,7 @@ impl Instance {
                 RawInstance::Sprite(Instance2DRaw {
                     sprite: Matrix2::from_cols(
                         Vector2::new(self.position[0], self.position[1]),
-                        Vector2::zero()
+                        Vector2::new(1.0, 1.0),
                     ).into()
                     //  rotation:   * Matrix2::from_angle(self.rotation))
                 })

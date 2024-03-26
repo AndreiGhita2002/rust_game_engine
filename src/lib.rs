@@ -260,7 +260,7 @@ impl GlobalContext {
             instance_manager,
             entity_manager,
             system_manager,
-            background: [0.0, 0.0, 0.0, 1.0],
+            background: [0.25, 0.0, 0.0, 1.0],
         }
     }
 
@@ -443,7 +443,7 @@ fn test_init(context: &mut GlobalContext) {
             }
         }
         // ----- Screen Space -----
-        let screen_master = entity_manager.new_entity(&context, EntityDesc{
+        let screen_master = entity_manager.new_entity(&context, EntityDesc {
             parent_id: Some(0),
             space_component: Some(Box::new(ScreenSpaceMaster::default())),
             render_component: Some(NoRender::new()),
@@ -453,7 +453,7 @@ fn test_init(context: &mut GlobalContext) {
         // cat sprite
         entity_manager.new_entity(&context, EntityDesc {
             parent_id: Some(screen_master.get_id()),
-            position: vec![0.0, 0.0],
+            position: vec![0.5, 0.5],
             ..Default::default()
         });
     }
